@@ -1,5 +1,5 @@
 output "servicos" {
-  description = "Nome do servico ECS por rota."
+  description = "Nome do servico ECS (so fonte-primaria)."
   value       = { for nome, s in aws_ecs_service.this : nome => s.name }
 }
 

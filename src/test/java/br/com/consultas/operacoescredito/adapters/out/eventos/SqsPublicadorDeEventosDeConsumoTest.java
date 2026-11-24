@@ -307,7 +307,7 @@ class SqsPublicadorDeEventosDeConsumoTest {
 
     private static EventoDeConsumo evento(String correlationId) {
         return new EventoDeConsumo(EventoDeConsumo.VERSAO, Instant.parse("2026-11-23T10:15:30Z"), correlationId,
-                null, "teste", "visao_consolidada", "OPERACAO", 100000001L, null, null,
+                null, "teste", "fonte_primaria", "OPERACAO", 100000001L, null, null,
                 List.of("operacao", "originacao", "parcelas"), List.of(), null, null, 1, List.of(),
                 Map.of("parcelas", 2L), Map.of(), 200, null, 12);
     }

@@ -24,7 +24,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Filtro em memória sobre as operações devolvidas pela fonte (seção 2.6, ADR-0001), tipado pelo
+ * Filtro em memória sobre as operações devolvidas pela fonte (seção 2.6), tipado pelo
  * catálogo de campos (ADR-0005).
  *
  * <p>Cada condição tem um <em>alvo</em>: a lista cujos itens ela seleciona. Em bloco-lista

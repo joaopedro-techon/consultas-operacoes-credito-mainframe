@@ -1,4 +1,4 @@
-name: consultas-operacoes-credito
+name: consultas-operacoes-credito-mainframe
 
 services:
   localstack:
@@ -6,17 +6,13 @@ services:
     image: localstack/localstack:4.14.0
     ports:
       - "4566:4566"
+    # Só o SQS: a fila do evento de consumo (ADR-0004)
     environment:
-      SERVICES: dynamodb,sqs
+      SERVICES: sqs
       AWS_DEFAULT_REGION: sa-east-1
-      # Um só DynamoDB para qualquer região/credencial: ferramentas que só pedem host:porta (NoSQL Workbench,
-      # que assina com a região "localhost") enxergam a tabela criada em sa-east-1
-      DYNAMODB_SHARE_DB: "1"
-      CONSULTAS_DYNAMODB_TABELA: operacoes-credito
       CONSULTAS_EVENTOS_FILA: consultas-eventos-consumo
     volumes:
       - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
-      - ./localstack/massa:/etc/localstack/massa:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
       interval: 5s
@@ -24,7 +20,7 @@ services:
       retries: 30
 
   wiremock:
-    # Gateway do mainframe (fonte primária): stubs de trancode gerados por localstack/gerar_trancode.py
+    # Gateway do mainframe (fonte primária): stubs de trancode versionados em wiremock/mappings
     image: wiremock/wiremock:3.13.2
     command: ["--disable-banner"]
     ports:
@@ -38,7 +34,7 @@ services:
       retries: 30
 
   valkey:
-    # Cache por bloco da visão consolidada (ADR-0002); sem persistência: é só cache
+    # Cache de custódia (custodia:{id_operacao}, ADR-0012); sem persistência: é só cache
     image: valkey/valkey:9.0.8-alpine
     command: ["valkey-server", "--save", "", "--appendonly", "no"]
     ports:
@@ -51,8 +47,7 @@ services:
 
   redisinsight:
     # UI para inspecionar o cache (só desenvolvimento local): http://localhost:5540. A conexão com o Valkey vem
-    # pré-configurada (aparece depois de aceitar os termos no primeiro acesso), com descompressão GZIP: os
-    # valores são o texto_detalhe em GZIP e aparecem como JSON.
+    # pré-configurada (aparece depois de aceitar os termos no primeiro acesso); os valores são o código da custódia.
     image: redis/redisinsight:3.8.0
     ports:
       - "5540:5540"
@@ -60,7 +55,6 @@ services:
       RI_REDIS_HOST: valkey
       RI_REDIS_PORT: "6379"
       RI_REDIS_ALIAS: valkey (cache local)
-      RI_REDIS_COMPRESSOR: GZIP
     depends_on:
       valkey:
         condition: service_healthy
@@ -71,10 +65,6 @@ services:
       - "8080:8080"
     environment:
       AWS_REGION: sa-east-1
-      CONSULTAS_DYNAMODB_TABELA: operacoes-credito
-      CONSULTAS_DYNAMODB_ENDPOINT: http://localstack:4566
-      CONSULTAS_DYNAMODB_CREDENCIAIS_ACCESS_KEY_ID: test
-      CONSULTAS_DYNAMODB_CREDENCIAIS_SECRET_ACCESS_KEY: test
       CONSULTAS_FONTE_PRIMARIA_URL: http://wiremock:8080
       CONSULTAS_VALKEY_HOST: valkey
       CONSULTAS_VALKEY_PORTA: "6379"

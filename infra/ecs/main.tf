@@ -2,23 +2,10 @@ locals {
   container_name = "app"
   container_port = 8080
 
-  # Mesma imagem, dois servicos (ADR-0015). O ALB avalia a regra da fonte primaria (mais especifica) primeiro.
+  # So o servico da fonte primaria (ADR-0017); o da visao consolidada e a regra dele no ALB
+  # (/v1/operacoes-credito*) ficam no repositorio consultas-operacoes-credito. O mapa com uma entrada mantem os
+  # enderecos dos recursos (this["fonte-primaria"]) de antes da separacao: o cutover e so trocar a imagem.
   servicos = {
-    "visao-consolidada" = {
-      config        = var.visao_consolidada
-      sigla         = "vc"
-      path_patterns = ["/v1/operacoes-credito*"]
-      prioridade    = var.prioridade_regras + 1
-      # CPU-bound e respostas curtas: round robin com slow start para o JIT aquecer nas tasks novas
-      algoritmo  = "round_robin"
-      slow_start = 60
-      # Deploy padrao: sobe as novas antes de tirar as antigas
-      deployment_maximum_percent         = 200
-      deployment_minimum_healthy_percent = 100
-      ambiente = {
-        CONSULTAS_ROTAS_ATIVAS = "visao-consolidada"
-      }
-    }
     "fonte-primaria" = {
       config        = var.fonte_primaria
       sigla         = "fp"
@@ -32,7 +19,6 @@ locals {
       deployment_maximum_percent         = 100
       deployment_minimum_healthy_percent = 50
       ambiente = {
-        CONSULTAS_ROTAS_ATIVAS                             = "fonte-primaria"
         CONSULTAS_FONTE_PRIMARIA_COTA_CHAMADAS_POR_SEGUNDO = tostring(var.fonte_primaria.cota_chamadas_por_segundo)
         CONSULTAS_FONTE_PRIMARIA_COTA_MAX_TASKS            = tostring(var.fonte_primaria.max_tasks)
       }

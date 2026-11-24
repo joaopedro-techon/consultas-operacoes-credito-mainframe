@@ -1,0 +1,1 @@
+{"detail":"Parâmetro cpf_cnpj deve ser um CPF (11 dígitos) ou CNPJ (14 caracteres, numérico ou alfanumérico em maiúsculas) com dígito verificador válido","status":400,"title":"Requisição inválida","correlation_id":"captura-validacao-05"}

@@ -13,31 +13,28 @@ class RequisicaoDeConsultaTest {
 
     @ParameterizedTest
     @CsvSource(textBlock = """
-            '',     /v1/operacoes-credito,                      true
             '',     /v1/operacoes-credito/fonte-primaria,       true
-            /app,   /app/v1/operacoes-credito,                  true
+            /app,   /app/v1/operacoes-credito/fonte-primaria,   true
+            '',     /v1/operacoes-credito,                      false
+            /app,   /app/v1/operacoes-credito,                  false
             '',     /v1/operacoes-credito/xyz,                  false
             '',     /v1/operacoes-credito/,                     false
+            '',     /v1/operacoes-credito/fonte-primaria/,      false
             '',     /v1/operacoes-credito/fonte-primaria/x,     false
-            '',     /v1/operacoes-creditox,                     false
-            '',     /x/v1/operacoes-credito,                    false
+            '',     /v1/operacoes-credito/fonte-primariax,      false
+            '',     /x/v1/operacoes-credito/fonte-primaria,     false
             '',     /actuator/health,                           false
             """)
-    void soAsDuasRotasExatasSaoDeConsulta(String contexto, String uri, boolean consulta) {
+    void soARotaExataDaFontePrimariaEDeConsulta(String contexto, String uri, boolean consulta) {
         var request = new MockHttpServletRequest("GET", uri);
         request.setContextPath(contexto);
 
         assertThat(RequisicaoDeConsulta.ehRotaDeConsulta(request)).isEqualTo(consulta);
     }
 
-    @ParameterizedTest
-    @CsvSource(textBlock = """
-            /v1/operacoes-credito,                      visao_consolidada
-            /v1/operacoes-credito/fonte-primaria,       fonte_primaria
-            /v1/operacoes-credito/xyz/fonte-primaria,   visao_consolidada
-            """)
-    void rotaSoEFontePrimariaNaRotaExata(String uri, String rota) {
-        assertThat(RequisicaoDeConsulta.rota(new MockHttpServletRequest("GET", uri))).isEqualTo(rota);
+    @Test
+    void rotaEhSempreAFontePrimaria() {
+        assertThat(RequisicaoDeConsulta.rota()).isEqualTo("fonte_primaria");
     }
 
     @ParameterizedTest

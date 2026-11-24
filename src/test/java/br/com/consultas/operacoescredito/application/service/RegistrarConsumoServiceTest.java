@@ -156,7 +156,7 @@ class RegistrarConsumoServiceTest {
     }
 
     private static Consumo consumo(String cpfCnpj, String conta, String filtro) {
-        return new Consumo(Instant.parse("2026-11-23T10:15:30Z"), "c-1", null, "sistema", "visao_consolidada",
+        return new Consumo(Instant.parse("2026-11-23T10:15:30Z"), "c-1", null, "sistema", "fonte_primaria",
                 "CLIENTE", null, cpfCnpj, conta, List.of("operacao", "originacao"), List.of(), filtro, null, 2,
                 List.of(), Map.of("operacao", 1L), Map.of(), 200, null, 15);
     }

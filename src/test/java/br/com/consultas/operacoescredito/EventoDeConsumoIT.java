@@ -1,6 +1,5 @@
 package br.com.consultas.operacoescredito;
 
-import io.lettuce.core.RedisClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -37,18 +36,17 @@ import static org.awaitility.Awaitility.await;
 /**
  * Evento de consumo (seção 11 da especificação, ADR-0004) observado na fila SQS do LocalStack depois de consultas
  * reais pela API HTTP: um evento JSON plano em snake_case por requisição, CPF/CNPJ e conta só como HMAC-SHA256,
- * hits e misses de cache por bloco (com o Valkey de {@link CacheContainers}) e a fila em memória drenada no
- * encerramento gracioso.
+ * {@code rota = fonte_primaria}, os contadores de cache por bloco sempre vazios (o cache de blocos é só da visão
+ * consolidada) e a fila em memória drenada no encerramento gracioso.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @AutoConfigureTracing
-@Import({VisaoConsolidadaContainers.class, FontePrimariaContainers.class, CacheContainers.class,
-        EventosDeConsumoContainers.class})
+@Import({FontePrimariaContainers.class, SqsContainers.class, EventosDeConsumoContainers.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class EventoDeConsumoIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final String CPF = "52998224725";
     private static final String CNPJ_ALFANUMERICO = "12ABC34501DE35";
     private static final String CONTA = "434115000065874";
@@ -58,24 +56,23 @@ class EventoDeConsumoIT {
     private final LocalStackContainer localStack;
     private final SqsClient sqs;
     private final String urlFila;
-    private final RedisClient valkey;
+    private final GenericContainer<?> wireMock;
     /** Corpo cru de cada evento lido da fila, por correlation_id (a fila é compartilhada pelos testes). */
     private final Map<String, String> eventos = new ConcurrentHashMap<>();
 
     @Autowired
     EventoDeConsumoIT(RestTestClient client, LocalStackContainer localStack,
-                      @Qualifier("valkey") GenericContainer<?> valkey) {
+                      @Qualifier("wireMock") GenericContainer<?> wireMock) {
         this.client = client;
         this.localStack = localStack;
         this.sqs = EventosDeConsumoContainers.sqs(localStack);
         this.urlFila = sqs.getQueueUrl(b -> b.queueName(EventosDeConsumoContainers.FILA)).queueUrl();
-        this.valkey = RedisClient.create(CacheContainers.uriDireta(valkey));
+        this.wireMock = wireMock;
     }
 
     @AfterAll
     void fechar() {
         sqs.close();
-        valkey.shutdown();
     }
 
     @Test
@@ -97,7 +94,7 @@ class EventoDeConsumoIT {
                 .isBetween(inicio.minusSeconds(1), Instant.now());
         assertThat(evento.path("correlation_id").asString()).isEqualTo(correlationId);
         assertThat(evento.path("consumidor").asString()).isEqualTo("sistema-custodia");
-        assertThat(evento.path("rota").asString()).isEqualTo("visao_consolidada");
+        assertThat(evento.path("rota").asString()).isEqualTo("fonte_primaria");
         assertThat(evento.path("tipo_consulta").asString()).isEqualTo("OPERACAO");
         assertThat(evento.path("id_operacao").isNumber()).isTrue();
         assertThat(evento.path("id_operacao").asLong()).isEqualTo(100000001L);
@@ -302,10 +299,10 @@ class EventoDeConsumoIT {
     }
 
     @Test
-    void consultaNaFontePrimariaIndicaARotaESemCache() {
+    void consultaNaFontePrimariaIndicaARotaESemCacheDeBlocos() {
         var correlationId = novoCorrelationId();
 
-        client.get().uri(ROTA + "/fonte-primaria?id_operacao=100000001&expand=saldo")
+        client.get().uri(ROTA + "?id_operacao=100000001&expand=saldo")
                 .header("x-tipo-consulta", "OPERACAO")
                 .header("x-correlationid", correlationId)
                 .exchange()
@@ -315,41 +312,6 @@ class EventoDeConsumoIT {
         assertThat(evento.path("rota").asString()).isEqualTo("fonte_primaria");
         assertThat(evento.path("cache_hits").properties()).isEmpty();
         assertThat(evento.path("cache_misses").properties()).isEmpty();
-    }
-
-    @Test
-    void hitsEMissesDeCachePorBloco() {
-        try (var conexao = valkey.connect()) {
-            conexao.sync().flushall();
-        }
-        var primeira = novoCorrelationId();
-        var segunda = novoCorrelationId();
-
-        client.get().uri(ROTA + "?id_operacao=100000006&expand=parcelas")
-                .header("x-tipo-consulta", "OPERACAO")
-                .header("x-correlationid", primeira)
-                .exchange()
-                .expectStatus().isOk();
-        // A gravação no cache acontece depois da resposta montada; espera o bloco aparecer no Valkey
-        await().atMost(Duration.ofSeconds(5)).until(() -> {
-            try (var conexao = valkey.connect()) {
-                return conexao.sync().exists("op:100000006:parcelas") == 1;
-            }
-        });
-        client.get().uri(ROTA + "?id_operacao=100000006&expand=parcelas,saldo")
-                .header("x-tipo-consulta", "OPERACAO")
-                .header("x-correlationid", segunda)
-                .exchange()
-                .expectStatus().isOk();
-
-        var antes = evento(primeira);
-        assertThat(contadores(antes, "cache_hits")).isEmpty();
-        assertThat(contadores(antes, "cache_misses"))
-                .containsExactlyInAnyOrderEntriesOf(Map.of("operacao", 1L, "originacao", 1L, "parcelas", 1L));
-        var depois = evento(segunda);
-        assertThat(contadores(depois, "cache_hits"))
-                .containsExactlyInAnyOrderEntriesOf(Map.of("operacao", 1L, "originacao", 1L, "parcelas", 1L));
-        assertThat(contadores(depois, "cache_misses")).containsExactlyInAnyOrderEntriesOf(Map.of("saldo", 1L));
     }
 
     @Test
@@ -372,10 +334,7 @@ class EventoDeConsumoIT {
         // Outra instância da aplicação, com lote grande e intervalo longo: nada sai antes do encerramento
         var argumentos = new String[]{
                 "--server.port=0",
-                "--consultas.dynamodb.endpoint=" + localStack.getEndpoint(),
-                "--consultas.dynamodb.regiao=" + localStack.getRegion(),
-                "--consultas.dynamodb.credenciais.access-key-id=" + localStack.getAccessKey(),
-                "--consultas.dynamodb.credenciais.secret-access-key=" + localStack.getSecretKey(),
+                "--consultas.fonte-primaria.url=" + FontePrimariaContainers.urlWireMock(wireMock),
                 "--consultas.eventos.habilitado=true",
                 "--consultas.eventos.segredo-hmac=" + EventosDeConsumoContainers.SEGREDO_HMAC,
                 "--consultas.eventos.fila.intervalo-envio=1h",
@@ -436,12 +395,6 @@ class EventoDeConsumoIT {
     private static List<String> textos(JsonNode evento, String campo) {
         assertThat(evento.path(campo).isArray()).as(campo).isTrue();
         return evento.path(campo).valueStream().map(JsonNode::asString).toList();
-    }
-
-    private static Map<String, Long> contadores(JsonNode evento, String campo) {
-        var contadores = new java.util.LinkedHashMap<String, Long>();
-        evento.path(campo).properties().forEach(par -> contadores.put(par.getKey(), par.getValue().asLong()));
-        return contadores;
     }
 
     private static String novoCorrelationId() {

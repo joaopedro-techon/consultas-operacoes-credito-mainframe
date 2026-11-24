@@ -9,7 +9,7 @@ import java.util.Objects;
  * Observações (span + timer) padronizadas para os adapters. Dois tipos, com nomes e tags fixos para
  * que os dashboards e o tail sampling não dependam de cada adapter:
  * <ul>
- *     <li>{@link #dependencia}: chamada a um sistema externo (DynamoDB, Valkey, fonte primária, SQS).
+ *     <li>{@link #dependencia}: chamada a um sistema externo (Valkey, fonte primária, SQS).
  *     Métrica {@code consultas.dependencia}, tags {@code dependencia} e {@code operacao};</li>
  *     <li>{@link #etapa}: passo interno da consulta (consulta GSI, batch, fan-out, filtro).
  *     Métrica {@code consultas.etapa}, tag {@code etapa}.</li>
@@ -25,7 +25,7 @@ public final class Observacoes {
     private Observacoes() {
     }
 
-    /** Observação ainda não iniciada de uma chamada a {@code dependencia} (ex.: {@code dynamodb}, {@code Query}). */
+    /** Observação ainda não iniciada de uma chamada a {@code dependencia} (ex.: {@code valkey}, {@code MGET}). */
     public static Observation dependencia(ObservationRegistry registry, String dependencia, String operacao) {
         Objects.requireNonNull(dependencia, "dependencia");
         Objects.requireNonNull(operacao, "operacao");

@@ -45,7 +45,7 @@ variable "subnet_ids" {
 }
 
 variable "security_group_ids" {
-  description = "Security groups das tasks. Devem aceitar TCP 8080 vindo do security group do ALB e permitir saida para DynamoDB, Valkey, SQS, gateway do mainframe e Collector."
+  description = "Security groups das tasks. Devem aceitar TCP 8080 vindo do security group do ALB e permitir saida para Valkey, SQS, gateway do mainframe e Collector."
   type        = list(string)
 }
 
@@ -60,7 +60,7 @@ variable "alb_listener_arn" {
 }
 
 variable "prioridade_regras" {
-  description = "Prioridade da regra da fonte primaria no listener; a da visao consolidada usa a seguinte. A regra mais especifica (fonte primaria) precisa vir antes."
+  description = "Prioridade da regra da fonte primaria no listener. A regra da visao consolidada (/v1/operacoes-credito*, no outro repositorio) precisa de um numero maior: a mais especifica (fonte primaria) vem antes."
   type        = number
   default     = 100
 
@@ -76,7 +76,7 @@ variable "execution_role_arn" {
 }
 
 variable "task_role_arn" {
-  description = "Role da aplicacao (DynamoDB GetItem/BatchGetItem/Query, SQS SendMessage)."
+  description = "Role da aplicacao (SQS SendMessage)."
   type        = string
 }
 
@@ -85,7 +85,7 @@ variable "task_role_arn" {
 # ---------------------------------------------------------------------------------------------------------
 
 variable "imagem" {
-  description = "Imagem da aplicacao (a mesma nos dois servicos), de preferencia por digest: <repo>@sha256:..."
+  description = "Imagem consultas-operacoes-credito-mainframe, de preferencia por digest: <repo>@sha256:..."
   type        = string
 }
 
@@ -101,13 +101,13 @@ variable "arquitetura_cpu" {
 }
 
 variable "ambiente" {
-  description = "Variaveis de ambiente comuns aos dois servicos (AWS_REGION, CONSULTAS_DYNAMODB_TABELA, CONSULTAS_VALKEY_HOST, CONSULTAS_FONTE_PRIMARIA_URL, CONSULTAS_EVENTOS_SQS_URL_FILA, OTEL_EXPORTER_OTLP_ENDPOINT...). CONSULTAS_ROTAS_ATIVAS e a cota sao preenchidas por servico."
+  description = "Variaveis de ambiente do servico (AWS_REGION, CONSULTAS_VALKEY_HOST, CONSULTAS_FONTE_PRIMARIA_URL, CONSULTAS_EVENTOS_SQS_URL_FILA, OTEL_EXPORTER_OTLP_ENDPOINT...). A cota e preenchida pelo modulo."
   type        = map(string)
   default     = {}
 
   validation {
-    condition     = length(setintersection(keys(var.ambiente), ["CONSULTAS_ROTAS_ATIVAS", "CONSULTAS_FONTE_PRIMARIA_COTA_CHAMADAS_POR_SEGUNDO", "CONSULTAS_FONTE_PRIMARIA_COTA_MAX_TASKS"])) == 0
-    error_message = "CONSULTAS_ROTAS_ATIVAS e a cota da fonte primaria sao definidas pelo modulo (var.fonte_primaria), nao em var.ambiente."
+    condition     = length(setintersection(keys(var.ambiente), ["CONSULTAS_FONTE_PRIMARIA_COTA_CHAMADAS_POR_SEGUNDO", "CONSULTAS_FONTE_PRIMARIA_COTA_MAX_TASKS"])) == 0
+    error_message = "A cota da fonte primaria e definida pelo modulo (var.fonte_primaria), nao em var.ambiente."
   }
 }
 
@@ -126,35 +126,6 @@ variable "retencao_logs_dias" {
 # ---------------------------------------------------------------------------------------------------------
 # Dimensionamento (docs/capacidade-ecs-fargate.md). Todos os numeros sao estimativas a validar com o k6.
 # ---------------------------------------------------------------------------------------------------------
-
-variable "visao_consolidada" {
-  description = <<-EOT
-    Servico da rota visao consolidada (DynamoDB + Valkey), CPU-bound.
-    cpu/memory                        = combinacao valida do Fargate (unidades de CPU e MiB)
-    min_tasks/max_tasks               = limites do autoscaling
-    alvo_requisicoes_por_task_minuto  = alvo do ALBRequestCountPerTarget (metrica POR MINUTO: RPS-alvo por task x 60)
-    alvo_cpu                          = alvo de uma segunda politica por CPU media (null desliga)
-    scale_out_cooldown/scale_in_cooldown = segundos
-    java_tool_options                 = JAVA_TOOL_OPTIONS extra (vazio = ergonomia da JVM)
-  EOT
-  type = object({
-    cpu                              = optional(number, 2048)
-    memory                           = optional(number, 4096)
-    min_tasks                        = optional(number, 12)
-    max_tasks                        = optional(number, 150)
-    alvo_requisicoes_por_task_minuto = optional(number, 33000)
-    alvo_cpu                         = optional(number, 60)
-    scale_out_cooldown               = optional(number, 60)
-    scale_in_cooldown                = optional(number, 300)
-    java_tool_options                = optional(string, "")
-  })
-  default = {}
-
-  validation {
-    condition     = var.visao_consolidada.min_tasks >= 1 && var.visao_consolidada.min_tasks <= var.visao_consolidada.max_tasks
-    error_message = "visao_consolidada: min_tasks deve ser >= 1 e <= max_tasks."
-  }
-}
 
 variable "fonte_primaria" {
   description = <<-EOT
@@ -192,7 +163,7 @@ variable "tags" {
   description = "Tags aplicadas a todos os recursos."
   type        = map(string)
   default = {
-    app        = "consultas-operacoes-credito"
+    app        = "consultas-operacoes-credito-mainframe"
     managed-by = "terraform"
   }
 }

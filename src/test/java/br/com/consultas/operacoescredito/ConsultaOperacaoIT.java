@@ -14,14 +14,14 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Testes de caixa-preta da consulta OPERACAO na visão consolidada: só a API HTTP é observada.
+ * Testes de caixa-preta da consulta OPERACAO na fonte primária: só a API HTTP é observada.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class ConsultaOperacaoIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
 
     private final RestTestClient client;
 
@@ -67,6 +67,18 @@ class ConsultaOperacaoIT {
                 .jsonPath("$.status").isEqualTo(404)
                 .jsonPath("$.title").isEqualTo("Operação de crédito não encontrada")
                 .jsonPath("$.detail").value(String.class, detail -> assertThat(detail).contains("999999999"));
+    }
+
+    /** A visão consolidada roda em outro serviço (ADR-0017): aqui o caminho dela não existe. */
+    @Test
+    void rotaDaVisaoConsolidadaNaoExisteNesteServicoEDevolve404EmProblemDetails() {
+        client.get().uri("/v1/operacoes-credito?id_operacao=100000001")
+                .header("x-tipo-consulta", "OPERACAO")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(404);
     }
 
     @Test

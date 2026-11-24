@@ -26,11 +26,11 @@ import static org.awaitility.Awaitility.await;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 @ExtendWith(OutputCaptureExtension.class)
 class LogDeAcessoIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final String CPF = "52998224725";
     private static final String CONTA = "434115000065874";
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -56,7 +56,7 @@ class LogDeAcessoIT {
         var acesso = logDeAcesso(saida, correlationId);
         assertThat(acesso.path("consumidor").asString()).isEqualTo("sistema-custodia");
         assertThat(acesso.path("tipo_consulta").asString()).isEqualTo("OPERACAO");
-        assertThat(acesso.path("rota").asString()).isEqualTo("visao_consolidada");
+        assertThat(acesso.path("rota").asString()).isEqualTo("fonte_primaria");
         assertThat(acesso.path("uri").asString()).isEqualTo(ROTA);
         assertThat(acesso.path("blocos").valueStream().map(JsonNode::asString).toList())
                 .containsExactly("operacao", "originacao", "parcelas", "saldo");
@@ -64,9 +64,11 @@ class LogDeAcessoIT {
         assertThat(acesso.path("duracao_ms").isNumber()).isTrue();
         assertThat(acesso.path("duracao_ms").asLong()).isNotNegative();
         assertThat(acesso.path("id_operacao").asString()).isEqualTo("100000001");
-        // Cache desligado neste contexto: contadores por bloco presentes e vazios (ver LogDeAcessoComCacheIT)
+        // Sem cache de blocos neste serviço: contadores presentes (mesmo formato da visão consolidada) e vazios
         assertThat(acesso.path("cache_hits").isObject()).isTrue();
+        assertThat(acesso.path("cache_hits").properties()).isEmpty();
         assertThat(acesso.path("cache_misses").isObject()).isTrue();
+        assertThat(acesso.path("cache_misses").properties()).isEmpty();
     }
 
     @Test

@@ -3,3 +3,5 @@
 mvnw text eol=lf
 *.cmd text eol=crlf
 localstack/** text eol=lf
+# Respostas de referencia comparadas byte a byte (FontePrimariaIT, FontePrimariaClienteContaIT)
+src/test/resources/respostas-esperadas/** -text

@@ -1,22 +1,20 @@
 # Override do docker-compose para medir a capacidade de UMA task (carga/README.md).
 # Uso (na raiz do repositório):
-#   $env:APP_CPUS="2"; $env:APP_MEMORIA="4g"; docker compose -f docker-compose.yml -f carga/docker-compose.carga.yml up -d --build
-# Os limites imitam a task Fargate: 2 vCPU / 4 GB (visão consolidada) ou 1 vCPU / 2 GB (fonte primária).
+#   $env:APP_CPUS="1"; $env:APP_MEMORIA="2g"; docker compose -f docker-compose.yml -f carga/docker-compose.carga.yml up -d --build
+# Os limites imitam a task Fargate da fonte primária: 1 vCPU / 2 GB.
 services:
   app:
     # Limite de CPU e memória do container (equivalente a docker run --cpus/--memory). A JVM enxerga esses
     # limites (ActiveProcessorCount e MaxRAMPercentage=75 do Dockerfile), como no Fargate.
-    cpus: ${APP_CPUS:-2}
-    mem_limit: ${APP_MEMORIA:-4g}
+    cpus: ${APP_CPUS:-1}
+    mem_limit: ${APP_MEMORIA:-2g}
     # Para não disputar núcleos com LocalStack, Valkey, WireMock e o k6, fixe-os depois do up:
-    #   docker update --cpuset-cpus 0,1 consultas-operacoes-credito-app-1
+    #   docker update --cpuset-cpus 0 consultas-operacoes-credito-mainframe-app-1
     environment:
-      # Liga só a rota medida (visao-consolidada, fonte-primaria ou as duas, separadas por vírgula)
-      CONSULTAS_ROTAS_ATIVAS: ${CONSULTAS_ROTAS_ATIVAS:-visao-consolidada,fonte-primaria}
       # Medindo uma task da fonte primária com a cota inteira: MAX_TASKS=1 dá 1.500 chamadas/s a esta task
       CONSULTAS_FONTE_PRIMARIA_COTA_CHAMADAS_POR_SEGUNDO: ${CONSULTAS_FONTE_PRIMARIA_COTA_CHAMADAS_POR_SEGUNDO:-1500}
       CONSULTAS_FONTE_PRIMARIA_COTA_MAX_TASKS: ${CONSULTAS_FONTE_PRIMARIA_COTA_MAX_TASKS:-3}
-      # false mede o pior caso do DynamoDB (cache fora); a massa local é pequena e o acerto real fica perto de 100%
+      # false mede o pior caso do cache de custódia (toda consulta OPERACAO refaz a descoberta nas 4 custódias)
       CONSULTAS_CACHE_HABILITADO: ${CONSULTAS_CACHE_HABILITADO:-true}
 
   wiremock:

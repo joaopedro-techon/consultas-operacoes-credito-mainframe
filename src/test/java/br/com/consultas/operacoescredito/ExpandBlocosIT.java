@@ -17,15 +17,15 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Testes de caixa-preta do {@code expand} na consulta OPERACAO da visão consolidada.
- * Valores esperados vêm da massa em {@code localstack/massa} (regras em {@code localstack/gerar_massa.py}).
+ * Testes de caixa-preta do {@code expand} na consulta OPERACAO da fonte primária.
+ * Valores esperados vêm da massa do gateway simulado em {@code wiremock/mappings}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class ExpandBlocosIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final String HEADER_INDISPONIVEIS = "x-blocos-indisponiveis";
 
     private final RestTestClient client;
@@ -131,7 +131,7 @@ class ExpandBlocosIT {
     }
 
     @Test
-    void blocoPedidoEAusenteNaVisaoConsolidadaVemNuloEListadoNoHeader() {
+    void blocoPedidoEAusenteNaFontePrimariaVemNuloEListadoNoHeader() {
         consultar("100000003", "saldo,parcelas,plano,recebimentos")
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(HEADER_INDISPONIVEIS, "plano,saldo")

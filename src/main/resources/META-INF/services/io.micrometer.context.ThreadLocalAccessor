@@ -1,3 +1,2 @@
 br.com.consultas.operacoescredito.config.observabilidade.MdcThreadLocalAccessor
 br.com.consultas.operacoescredito.config.resiliencia.PrazoDaRequisicaoThreadLocalAccessor
-br.com.consultas.operacoescredito.config.observabilidade.CacheDaRequisicaoThreadLocalAccessor

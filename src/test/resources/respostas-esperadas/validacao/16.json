@@ -1,0 +1,1 @@
+{"detail":"Bloco 'garantias' inválido no parâmetro expand. Blocos válidos: operacao, originacao, componentes, parcelas, amortizacoes, recebimentos, plano, saldo, controles_iof","status":400,"title":"Requisição inválida","correlation_id":"captura-validacao-16"}

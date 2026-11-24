@@ -34,18 +34,18 @@ import static org.awaitility.Awaitility.await;
 
 /**
  * Spans exportados depois de consultas reais (exportador em memória no lugar do OTLP): span HTTP com o
- * contexto da requisição, span filho por chamada ao DynamoDB, {@code traceparent} W3C respeitado e
+ * contexto da requisição, spans de etapa e um span por chamada ao mainframe, {@code traceparent} W3C respeitado e
  * CPF/CNPJ e conta sempre mascarados.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "management.opentelemetry.tracing.export.schedule-delay=50ms")
 @AutoConfigureRestTestClient
 @AutoConfigureTracing
-@Import({VisaoConsolidadaContainers.class, FontePrimariaContainers.class, TracesIT.ExportadorEmMemoria.class})
+@Import({FontePrimariaContainers.class, TracesIT.ExportadorEmMemoria.class})
 @ExtendWith(OutputCaptureExtension.class)
 class TracesIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final String CPF = "52998224725";
     private static final String CONTA = "434115000065874";
 
@@ -65,7 +65,7 @@ class TracesIT {
     }
 
     @Test
-    void consultaGeraSpanHttpComContextoESpanFilhoDoDynamoDb() {
+    void consultaGeraSpanHttpComContextoESpansDoMainframeNoMesmoTrace() {
         var correlationId = novoCorrelationId();
 
         client.get().uri(ROTA + "?id_operacao=100000001")
@@ -78,39 +78,14 @@ class TracesIT {
         var http = spanHttp(correlationId);
         assertThat(atributo(http, "consumidor")).isEqualTo("sistema-custodia");
         assertThat(atributo(http, "tipo_consulta")).isEqualTo("OPERACAO");
-        assertThat(atributo(http, "rota")).isEqualTo("visao_consolidada");
+        assertThat(atributo(http, "rota")).isEqualTo("fonte_primaria");
         assertThat(atributo(http, "id_operacao")).isEqualTo("100000001");
 
-        var dynamoDb = spansDoTrace(http.getTraceId()).stream()
-                .filter(span -> "dynamodb".equals(atributo(span, "dependencia")))
+        var mainframe = spansDoTrace(http.getTraceId()).stream()
+                .filter(span -> "fonte_primaria".equals(atributo(span, "dependencia")))
                 .toList();
-        assertThat(dynamoDb).isNotEmpty().allSatisfy(span -> {
-            assertThat(span.getName()).isEqualTo("dynamodb BatchGetItem");
-            assertThat(span.getParentSpanId()).isEqualTo(http.getSpanId());
-        });
-    }
-
-    @Test
-    void consultaPorClienteGeraEtapasDeGsiEBatchComAsChamadasAoDynamoDbDentro() {
-        var correlationId = novoCorrelationId();
-
-        client.get().uri(ROTA + "?cpf_cnpj=" + CPF + "&expand=parcelas")
-                .header("x-tipo-consulta", "CLIENTE")
-                .header("x-correlationid", correlationId)
-                .exchange()
-                .expectStatus().isOk();
-
-        var http = spanHttp(correlationId);
-        var spans = spansDoTrace(http.getTraceId());
-        var gsi = unico(spans, "etapa", "consulta_gsi");
-        var batch = unico(spans, "etapa", "batch");
-        assertThat(gsi.getParentSpanId()).isEqualTo(http.getSpanId());
-        assertThat(batch.getParentSpanId()).isEqualTo(http.getSpanId());
-        assertThat(atributo(gsi, "indice")).isEqualTo("gsi-cliente");
-        assertThat(spans).filteredOn(span -> "dynamodb Query".equals(span.getName()))
-                .isNotEmpty().allSatisfy(span -> assertThat(span.getParentSpanId()).isEqualTo(gsi.getSpanId()));
-        assertThat(spans).filteredOn(span -> "dynamodb BatchGetItem".equals(span.getName()))
-                .isNotEmpty().allSatisfy(span -> assertThat(span.getParentSpanId()).isEqualTo(batch.getSpanId()));
+        assertThat(mainframe).isNotEmpty().allSatisfy(span ->
+                assertThat(span.getName()).startsWith("fonte_primaria "));
     }
 
     @Test
@@ -133,7 +108,7 @@ class TracesIT {
     void fontePrimariaGeraDescobertaDaCustodiaEFanOutComUmSpanDeDependenciaPorBloco() {
         var correlationId = novoCorrelationId();
 
-        client.get().uri(ROTA + "/fonte-primaria?id_operacao=100000001&expand=parcelas,saldo")
+        client.get().uri(ROTA + "?id_operacao=100000001&expand=parcelas,saldo")
                 .header("x-tipo-consulta", "OPERACAO")
                 .header("x-correlationid", correlationId)
                 .exchange()
@@ -166,7 +141,7 @@ class TracesIT {
     void fontePrimariaPorClienteGeraEtapaDaListaEFanOutComUmSpanPorOperacaoEBloco() {
         var correlationId = novoCorrelationId();
 
-        client.get().uri(ROTA + "/fonte-primaria?cpf_cnpj=" + CPF + "&expand=parcelas&limite_operacoes=2")
+        client.get().uri(ROTA + "?cpf_cnpj=" + CPF + "&expand=parcelas&limite_operacoes=2")
                 .header("x-tipo-consulta", "CLIENTE")
                 .header("x-correlationid", correlationId)
                 .exchange()
@@ -204,12 +179,12 @@ class TracesIT {
         var porCliente = novoCorrelationId();
         var porConta = novoCorrelationId();
 
-        client.get().uri(ROTA + "/fonte-primaria?cpf_cnpj=" + CPF + "&limite_operacoes=1")
+        client.get().uri(ROTA + "?cpf_cnpj=" + CPF + "&limite_operacoes=1")
                 .header("x-tipo-consulta", "CLIENTE")
                 .header("x-correlationid", porCliente)
                 .exchange()
                 .expectStatus().isOk();
-        client.get().uri(ROTA + "/fonte-primaria?conta=" + CONTA + "&limite_operacoes=1")
+        client.get().uri(ROTA + "?conta=" + CONTA + "&limite_operacoes=1")
                 .header("x-tipo-consulta", "CONTA")
                 .header("x-correlationid", porConta)
                 .exchange()
@@ -307,7 +282,7 @@ class TracesIT {
 
     private String consultarFontePrimaria(String tipo, String criterio, int status) {
         var correlationId = novoCorrelationId();
-        client.get().uri(ROTA + "/fonte-primaria?" + criterio)
+        client.get().uri(ROTA + "?" + criterio)
                 .header("x-tipo-consulta", tipo)
                 .header("x-correlationid", correlationId)
                 .exchange()

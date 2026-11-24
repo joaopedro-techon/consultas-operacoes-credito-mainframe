@@ -57,7 +57,7 @@ Cada um dos conjuntos de dados que a consulta pode trazer de uma operação: `op
 _Avoid_: expand (como substantivo), domínio, seção
 
 **Bloco indisponível**:
-Bloco pedido que não pôde ser entregue para a operação: a visão consolidada ainda não o tem, ou a fonte primária falhou ao lê-lo enquanto os demais blocos responderam. Volta `null` e é listado no header `x-blocos-indisponiveis`; os outros blocos seguem na resposta. Um bloco-lista vazio não é indisponível, e um bloco-lista nunca volta truncado.
+Bloco pedido que não pôde ser entregue para a operação: a fonte primária falhou ao lê-lo enquanto os demais blocos responderam. Volta `null` e é listado no header `x-blocos-indisponiveis`; os outros blocos seguem na resposta. Um bloco-lista vazio não é indisponível, e um bloco-lista nunca volta truncado.
 
 **Descoberta de custódia**:
 Etapa que encontra em qual custódia a operação está, procurando-a em todas as custódias quando ainda não se sabe.
@@ -67,7 +67,7 @@ Custódia que não pôde ser consultada (falha ou proteção aberta). Se a opera
 
 **Página de ocorrências**:
 Parte de um bloco-lista, ou de uma lista de operações, devolvida pela fonte primária em uma chamada: no máximo 30 ocorrências. A fonte primária só informa se há mais páginas e entrega a chave de continuação para pedir a próxima.
-_Avoid_: lote (reservado ao BatchGetItem)
+_Avoid_: lote
 
 **Catálogo de campos**:
 Configuração que declara, por bloco, os campos válidos e o tipo de cada um (número, decimal, data, data-hora, texto, booleano, objeto, lista). Valida `fields`/`filter` e tipa as comparações do filtro (ADR-0005).
@@ -84,18 +84,12 @@ Critério de busca: OPERACAO (por `id_operacao`), CLIENTE (por CPF/CNPJ) ou CONT
 Tempo máximo que uma consulta pode levar, por tipo de consulta, contado desde a chegada da requisição; esgotado, a consulta falha com 504 (ADR-0006).
 _Avoid_: timeout (reservado aos limites de conexão, pool e resposta de uma chamada)
 
-**Visão consolidada**:
-Cópia de leitura das operações, otimizada para rapidez e eventualmente consistente com a fonte primária.
-
-**Cache de blocos**:
-Cópia temporária (Valkey, TTL) do `texto_detalhe` de cada bloco de uma operação já lido da visão consolidada, com chave `op:{id_operacao}:{bloco}`. Só otimização: indisponível, a consulta segue no DynamoDB (fail-open). Não guarda a lista de operações de um cliente ou conta e não vale para a fonte primária (ADR-0002).
-_Avoid_: cache de consulta, cache de resposta
 
 **Cache de custódia**:
-Lembrança temporária (Valkey, TTL) de em qual custódia uma operação foi encontrada, usada pelas duas rotas para pular a descoberta de custódia. Guarda só a custódia, nunca dados da operação; se a custódia lembrada não tem mais a operação, a lembrança é descartada e a descoberta é refeita (ADR-0012).
+Lembrança temporária (Valkey, TTL) de em qual custódia uma operação foi encontrada, usada para pular a descoberta de custódia; a chave `custodia:{id_operacao}` e o TTL de 24 h são compartilhados com o serviço da visão consolidada (ADR-0017). Guarda só a custódia, nunca dados da operação; se a custódia lembrada não tem mais a operação, a lembrança é descartada e a descoberta é refeita (ADR-0012).
 
 **Fonte primária**:
-Sistema de origem das operações (mainframe DB2), consultado quando se precisa do dado sem defasagem.
+Sistema de origem das operações (mainframe DB2), consultado quando se precisa do dado sem defasagem; é a única fonte deste serviço.
 _Avoid_: origem (confunde com Originação)
 
 **Cota da fonte primária**:

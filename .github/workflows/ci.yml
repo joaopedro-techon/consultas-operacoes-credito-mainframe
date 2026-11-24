@@ -19,7 +19,7 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
-      # Testes HTTP de caixa-preta sobem o LocalStack com Testcontainers (Docker do runner)
+      # Testes HTTP de caixa-preta sobem WireMock, Valkey e LocalStack (SQS) com Testcontainers (Docker do runner)
       - name: Build e testes
         run: ./mvnw -B verify
       - name: docker-compose e Collector válidos
@@ -28,16 +28,16 @@ jobs:
           docker run --rm -v "$PWD/observabilidade/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro" \
             otel/opentelemetry-collector-contrib:0.165.0 validate --config=/etc/otelcol-contrib/config.yaml
       - name: Imagem Docker
-        run: docker build -t consultas-operacoes-credito:${{ github.sha }} .
+        run: docker build -t consultas-operacoes-credito-mainframe:${{ github.sha }} .
 
-  # Terraform do API Gateway (infra/api-gateway) e dos serviços ECS (infra/ecs): formatação e validação sem
-  # backend nem credenciais
+  # Terraform do serviço ECS (infra/ecs): formatação e validação sem backend nem credenciais. O API Gateway
+  # (infra/api-gateway) fica no repositório da visão consolidada (ADR-0017)
   terraform:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        diretorio: [infra/api-gateway, infra/ecs]
+        diretorio: [infra/ecs]
     defaults:
       run:
         working-directory: ${{ matrix.diretorio }}

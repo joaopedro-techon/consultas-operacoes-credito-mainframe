@@ -32,7 +32,7 @@ class ConsultaObservationConvention extends DefaultServerRequestObservationConve
         return super.getLowCardinalityKeyValues(context).and(
                 KeyValue.of(CONSUMIDOR, RequisicaoDeConsulta.consumidor(request)),
                 KeyValue.of(TIPO_CONSULTA, tipoConsulta == null ? NENHUM : tipoConsulta),
-                KeyValue.of(ROTA, RequisicaoDeConsulta.rota(request)));
+                KeyValue.of(ROTA, RequisicaoDeConsulta.rota()));
     }
 
     @Override

@@ -24,17 +24,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Testes de caixa-preta das consultas CLIENTE e CONTA na fonte primária, com a massa do WireMock gerada da
- * mesma massa do DynamoDB: a rota da fonte primária deve devolver o mesmo JSON da visão consolidada.
+ * Testes de caixa-preta das consultas CLIENTE e CONTA na fonte primária, com a massa do WireMock: a rota da fonte
+ * primária devolve, byte a byte, o JSON de {@link RespostasEsperadas} (o mesmo da visão consolidada).
  * Mesma configuração de contexto do {@link FontePrimariaIT} (o contexto e os containers são reaproveitados).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @AutoConfigureTracing
-@Import({VisaoConsolidadaContainers.class, FontePrimariaContainers.class})
+@Import(FontePrimariaContainers.class)
 class FontePrimariaClienteContaIT {
 
-    private static final String ROTA_VISAO_CONSOLIDADA = "/v1/operacoes-credito";
     private static final String ROTA_FONTE_PRIMARIA = "/v1/operacoes-credito/fonte-primaria";
     private static final String HEADER_INDISPONIVEIS = "x-blocos-indisponiveis";
     private static final String HEADER_CORRELATION_ID = "x-correlationid";
@@ -55,35 +54,37 @@ class FontePrimariaClienteContaIT {
         this.wireMock = wireMock;
     }
 
-    @ParameterizedTest(name = "{0} {1}")
-    @CsvSource(delimiter = '|', textBlock = """
-            CLIENTE | cpf_cnpj=52998224725&expand=TODOS
-            CLIENTE | cpf_cnpj=52998224725
-            CLIENTE | cpf_cnpj=12ABC34501DE35&expand=TODOS
-            CLIENTE | cpf_cnpj=11144477735&expand=TODOS
-            CLIENTE | cpf_cnpj=11222333000181&expand=TODOS
-            CLIENTE | cpf_cnpj=52998224725&expand=saldo,plano&limite_operacoes=2
-            CLIENTE | cpf_cnpj=11222333000181&expand=parcelas&limite_operacoes=5
-            CLIENTE | cpf_cnpj=11222333000181&limite_operacoes=500
-            CONTA   | conta=434115000065874&expand=TODOS
-            CONTA   | conta=434115000099991&expand=saldo,plano
-            CONTA   | conta=434115000077712&expand=saldo&fields=operacao.data_contratacao_operacao,saldo.saldo_devedor_operacao
-            CONTA   | conta=434115000055501&expand=TODOS&limite_operacoes=3
-            CLIENTE | cpf_cnpj=52998224725&filter=operacao.situacao_operacao_credito==ATIVA
-            CLIENTE | cpf_cnpj=52998224725&expand=parcelas&filter=parcelas.situacao_parcela==ABERTA
-            CLIENTE | cpf_cnpj=39053344705
-            CLIENTE | cpf_cnpj=98XYZ76501AB46&expand=parcelas
-            CONTA   | conta=999999999
+    /** O caso é o nome do corpo esperado em {@code respostas-esperadas/cliente-conta}. */
+    @ParameterizedTest(name = "{1} {2}")
+    @CsvSource(delimiter = '|', nullValues = "-", textBlock = """
+            01 | CLIENTE | cpf_cnpj=52998224725&expand=TODOS                                      | plano,saldo
+            02 | CLIENTE | cpf_cnpj=52998224725                                                   | -
+            03 | CLIENTE | cpf_cnpj=12ABC34501DE35&expand=TODOS                                   | -
+            04 | CLIENTE | cpf_cnpj=11144477735&expand=TODOS                                      | -
+            05 | CLIENTE | cpf_cnpj=11222333000181&expand=TODOS                                   | -
+            06 | CLIENTE | cpf_cnpj=52998224725&expand=saldo,plano&limite_operacoes=2             | plano,saldo
+            07 | CLIENTE | cpf_cnpj=11222333000181&expand=parcelas&limite_operacoes=5             | -
+            08 | CLIENTE | cpf_cnpj=11222333000181&limite_operacoes=500                           | -
+            09 | CONTA   | conta=434115000065874&expand=TODOS                                     | -
+            10 | CONTA   | conta=434115000099991&expand=saldo,plano                               | plano,saldo
+            11 | CONTA   | conta=434115000077712&expand=saldo&fields=operacao.data_contratacao_operacao,saldo.saldo_devedor_operacao | -
+            12 | CONTA   | conta=434115000055501&expand=TODOS&limite_operacoes=3                  | -
+            13 | CLIENTE | cpf_cnpj=52998224725&filter=operacao.situacao_operacao_credito==ATIVA  | -
+            14 | CLIENTE | cpf_cnpj=52998224725&expand=parcelas&filter=parcelas.situacao_parcela==ABERTA | -
+            15 | CLIENTE | cpf_cnpj=39053344705                                                   | -
+            16 | CLIENTE | cpf_cnpj=98XYZ76501AB46&expand=parcelas                                | -
+            17 | CONTA   | conta=999999999                                                        | -
             """)
-    void clienteOuContaNaFontePrimariaDevolveOMesmoJsonEHeaderDaVisaoConsolidada(String tipo, String query) {
+    void clienteOuContaNaFontePrimariaDevolveOJsonEHeaderDoContrato(String caso, String tipo, String query,
+                                                                     String indisponiveis) {
         var uri = "?" + query.replace("expand=TODOS", "expand=" + TODOS_OS_BLOCOS);
 
         var fontePrimaria = resposta(ROTA_FONTE_PRIMARIA + uri, tipo);
-        var visaoConsolidada = resposta(ROTA_VISAO_CONSOLIDADA + uri, tipo);
 
-        assertThat(fontePrimaria.getResponseBody()).isEqualTo(visaoConsolidada.getResponseBody());
+        assertThat(RespostasEsperadas.recebido(fontePrimaria.getResponseBodyContent()))
+                .isEqualTo(RespostasEsperadas.corpo("cliente-conta/" + caso));
         assertThat(fontePrimaria.getResponseHeaders().get(HEADER_INDISPONIVEIS))
-                .isEqualTo(visaoConsolidada.getResponseHeaders().get(HEADER_INDISPONIVEIS));
+                .isEqualTo(indisponiveis == null ? null : List.of(indisponiveis));
     }
 
     @Test
@@ -160,38 +161,41 @@ class FontePrimariaClienteContaIT {
         assertThat(chamadasAoGateway(CUSTODIA + "/operacoes/.*", correlationId)).isEqualTo(14 * 3);
     }
 
-    @ParameterizedTest(name = "{0} {1} -> 400 igual à visão consolidada")
+    /**
+     * O caso é o nome do Problem Details esperado em {@code respostas-esperadas/validacao}; o
+     * {@code correlation_id} do corpo esperado é o enviado aqui.
+     */
+    @ParameterizedTest(name = "{1} {2} -> 400 do contrato")
     @CsvSource(delimiter = '|', textBlock = """
-            CLIENTE | cpf_cnpj=52998224726
-            CLIENTE | cpf_cnpj=12ABC34501DE36
-            CLIENTE | cpf_cnpj=12abc34501de35
-            CLIENTE | cpf_cnpj=11111111111
-            CLIENTE | cpf_cnpj=529.982.247-25
-            CLIENTE | cpf_cnpj=
-            CLIENTE | conta=434115000065874
-            CLIENTE | cpf_cnpj=52998224725&id_operacao=100000001
-            CLIENTE | cpf_cnpj=52998224725&limite_operacoes=0
-            CLIENTE | cpf_cnpj=52998224725&limite_operacoes=501
-            CLIENTE | cpf_cnpj=52998224725&limite_operacoes=abc
-            CONTA   | conta=4341150000658A4
-            CONTA   | conta=-1
-            CONTA   | cpf_cnpj=52998224725
-            CONTA   | conta=434115000065874&limite_operacoes=501
-            CONTA   | conta=434115000065874&expand=garantias
-            CONTA   | conta=434115000065874&fields=parcelas.situacao_parcela
-            CONTA   | conta=434115000065874&filter=operacao.campo_inexistente==1
+            01 | CLIENTE | cpf_cnpj=52998224726
+            02 | CLIENTE | cpf_cnpj=12ABC34501DE36
+            03 | CLIENTE | cpf_cnpj=12abc34501de35
+            04 | CLIENTE | cpf_cnpj=11111111111
+            05 | CLIENTE | cpf_cnpj=529.982.247-25
+            06 | CLIENTE | cpf_cnpj=
+            07 | CLIENTE | conta=434115000065874
+            08 | CLIENTE | cpf_cnpj=52998224725&id_operacao=100000001
+            09 | CLIENTE | cpf_cnpj=52998224725&limite_operacoes=0
+            10 | CLIENTE | cpf_cnpj=52998224725&limite_operacoes=501
+            11 | CLIENTE | cpf_cnpj=52998224725&limite_operacoes=abc
+            12 | CONTA   | conta=4341150000658A4
+            13 | CONTA   | conta=-1
+            14 | CONTA   | cpf_cnpj=52998224725
+            15 | CONTA   | conta=434115000065874&limite_operacoes=501
+            16 | CONTA   | conta=434115000065874&expand=garantias
+            17 | CONTA   | conta=434115000065874&fields=parcelas.situacao_parcela
+            18 | CONTA   | conta=434115000065874&filter=operacao.campo_inexistente==1
             """)
-    void validacaoDaFontePrimariaEhIdenticaAVisaoConsolidadaESemChamarOGateway(String tipo, String query) {
-        var correlationId = "fp-validacao-" + UUID.randomUUID();
+    void validacaoDaFontePrimariaDevolveO400DoContratoSemChamarOGateway(String caso, String tipo, String query) {
+        var correlationId = "captura-validacao-" + caso;
 
         var fontePrimaria = respostaComErro(ROTA_FONTE_PRIMARIA + "?" + query, tipo, correlationId);
-        var visaoConsolidada = respostaComErro(ROTA_VISAO_CONSOLIDADA + "?" + query, tipo, correlationId);
 
         assertThat(fontePrimaria.getStatus().value()).isEqualTo(400);
         assertThat(fontePrimaria.getResponseHeaders().getContentType())
                 .isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
-        assertThat(semCampoInstance(fontePrimaria.getResponseBody()))
-                .isEqualTo(semCampoInstance(visaoConsolidada.getResponseBody()));
+        assertThat(RespostasEsperadas.recebido(fontePrimaria.getResponseBodyContent()))
+                .isEqualTo(RespostasEsperadas.corpo("validacao/" + caso));
         assertThat(chamadasAoGateway("/mainframe/.*", correlationId)).isZero();
     }
 
@@ -216,11 +220,6 @@ class FontePrimariaClienteContaIT {
                 .header(HEADER_CORRELATION_ID, correlationId)
                 .exchange()
                 .returnResult(String.class);
-    }
-
-    /** O {@code instance} do Problem Details é a URI chamada, que difere entre as rotas. */
-    private static String semCampoInstance(String problema) {
-        return problema.replaceAll("\"instance\":\"[^\"]*\",?", "");
     }
 
     /** Requisições recebidas pelo gateway simulado com o correlationId informado (journal do WireMock). */

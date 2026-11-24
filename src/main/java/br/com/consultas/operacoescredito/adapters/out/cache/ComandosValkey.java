@@ -12,7 +12,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Os dois comandos que o cache usa, assíncronos: cada chamada só envia o comando e devolve o futuro da resposta,
  * então vários comandos seguidos vão em pipeline pela mesma conexão. Só comandos de uma chave ou {@code MGET}
- * (que o cliente de cluster do Lettuce divide por slot): nada de script ou transação com várias chaves (ADR-0011).
+ * (que o cliente de cluster do Lettuce divide por slot): nada de script ou transação com várias chaves.
  */
 interface ComandosValkey {
 

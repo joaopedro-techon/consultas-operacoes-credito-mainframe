@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Fonte de dados das operações de crédito (visão consolidada ou fonte primária).
+ * Fonte de dados das operações de crédito (a fonte primária).
  * A rota escolhe qual implementação o caso de uso recebe.
  */
 public interface FonteDeOperacoes {

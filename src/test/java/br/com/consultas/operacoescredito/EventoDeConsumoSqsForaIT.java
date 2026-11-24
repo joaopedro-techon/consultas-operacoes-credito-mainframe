@@ -42,10 +42,10 @@ import static org.awaitility.Awaitility.await;
         "resilience4j.bulkhead.instances.sqs.max-wait-duration=30s"
 })
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class EventoDeConsumoSqsForaIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     /** SQS que aceita conexões (o SO completa o handshake) e nunca responde. */
     private static final ServerSocket SQS_MUDO = abrirSocket();
@@ -77,7 +77,7 @@ class EventoDeConsumoSqsForaIT {
         // Sem retry do cliente de teste em 503: cada chamada é uma requisição só
         var client = RestTestClient.bindToServer(new JdkClientHttpRequestFactory())
                 .baseUrl("http://localhost:" + porta).build();
-        // Aquecimento: a primeira chamada abre conexões com o DynamoDB
+        // Aquecimento: a primeira chamada abre conexões com o gateway do mainframe
         var esperado = consultar(client);
 
         for (int i = 0; i < 10; i++) {
