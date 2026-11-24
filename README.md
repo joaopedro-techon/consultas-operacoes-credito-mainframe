@@ -5,11 +5,12 @@ primária** (gateway do mainframe). A visão consolidada (DynamoDB, com cache de
 do repositório `consultas-operacoes-credito` (ADR-0017); o ALB separa os dois pelo caminho.
 Descrição completa em `docs/prompt_detalhes_2.md`; vocabulário em `GLOSSARY.md`; decisões em `docs/adr/`.
 
-**Versão 2.0.0** — consultas `OPERACAO`, `CLIENTE` e `CONTA` na fonte primária, com `expand`, `fields` e
+**Versão 2.0.1** — consultas `OPERACAO`, `CLIENTE` e `CONTA` na fonte primária, com `expand`, `fields` e
 `filter`, cache de custódia no Valkey e um evento de consumo por requisição publicado no SQS.
 
 | Versão | Mudança |
 | --- | --- |
+| 2.0.1 | Verificação de contrato (ADR-0017): as respostas reais da rota (200, 400, 404, 429, 503, 504) são validadas contra o `openapi.yaml` de `consultas-operacoes-credito`, e o `catalogo-campos.yml` local contra o de lá, em todo PR e push e num job diário que abre uma issue quando diverge. Sem mudança nas respostas |
 | 2.0.0 | **Quebra:** repositório próprio da fonte primária (ADR-0017). Sai a rota da visão consolidada (`GET /v1/operacoes-credito` agora é 404), o DynamoDB, o cache de blocos, `consultas.rotas-ativas` e a métrica `consultas.cache`; artefato, imagem, `spring.application.name` e `service.name` passam a `consultas-operacoes-credito-mainframe`. As respostas de `/v1/operacoes-credito/fonte-primaria` não mudam |
 | 1.4.0 | Múltiplas custódias (SF, F5, OD, NSF), paginação do mainframe, resposta parcial por bloco, resiliência por custódia e bloco, dois serviços ECS com cota local; ADRs 0012–0016 |
 | 1.3.0 | Correções da revisão: parâmetro repetido e `conta` com mais de 20 dígitos viram 400; circuitos não contam falhas causadas pela própria API (prazo, pool, 4xx); máscara de dados pessoais nos spans; ADR-0009 |
@@ -47,6 +48,10 @@ x-blocos-indisponiveis: plano,saldo
 
 {"data": [{"operacao": {...}, "originacao": {...}, "parcelas": [...], "plano": null, "saldo": null}]}
 ```
+
+O contrato HTTP é definido em `consultas-operacoes-credito` (`contrato/openapi.yaml`, escrito à mão, e
+`src/main/resources/catalogo-campos.yml`): este serviço é verificado contra ele, sem lib compartilhada (ADR-0017;
+veja [Verificação de contrato](#verificação-de-contrato)). Mudança de contrato começa lá e é alinhada aqui.
 
 O corpo é o mesmo contrato da visão consolidada (o mesmo JSON, byte a byte, para a mesma massa). Só a rota
 exata `/v1/operacoes-credito/fonte-primaria` existe: qualquer outro caminho, inclusive `/v1/operacoes-credito`,
@@ -94,7 +99,7 @@ exata `/v1/operacoes-credito/fonte-primaria` existe: qualquer outro caminho, inc
 | Bloco `operacao` falhou, ou custódia indisponível na descoberta ou na lista de cliente/conta | 503 (Problem Details com `custodias_indisponiveis`) + `Retry-After` |
 | Prazo da requisição esgotado | 504 (Problem Details sugerindo `limite_operacoes`, menos blocos no `expand` e a consulta por `OPERACAO`) |
 | Cota do mainframe esgotada | 429 (Problem Details) + `Retry-After` |
-| Trancode fora do layout no bloco `operacao` | 502 (Problem Details) |
+| Trancode fora do layout no bloco `operacao` | 503 (Problem Details com `custodias_indisponiveis`) + `Retry-After`: sem um bloco `operacao` legível não se sabe se a operação está na custódia (ADR-0013) |
 
 ## Fonte primária
 
@@ -511,7 +516,43 @@ Requer JDK 25 e Docker. `verify` roda:
   chamadas (`src/test/resources/application.properties`), para que containers frios e falhas provocadas de
   propósito não afetem outros testes; os testes de resiliência usam contexto próprio com valores pequenos.
 
-O CI (`.github/workflows/ci.yml`, actions fixadas por SHA do commit) executa `./mvnw -B verify`, valida o
+### Verificação de contrato
+
+O contrato vem de `joaopedro-techon/consultas-operacoes-credito` (ADR-0017): o `contrato/openapi.yaml` e o
+`src/main/resources/catalogo-campos.yml` da `main` de lá, baixados por URL raw (repositório público, sem token)
+por `scripts/baixar-contrato.sh`.
+
+- `ContratoOpenApiIT` valida contra o `openapi.yaml`, com o `openapi-request-validator-core` (toda divergência é
+  erro), as respostas reais da rota com o gateway no WireMock: os três tipos de consulta, com `expand`, `fields`,
+  `filter`, blocos ausentes e blocos que falharam (`x-blocos-indisponiveis`), `data` vazio, 400 e 404.
+  `ResilienciaFontePrimariaIT` (503 por custódia e por bulkhead de CLIENTE/CONTA, 504, resposta parcial com
+  circuito aberto) e `RateLimiterFontePrimariaIT` (429) validam do mesmo jeito os erros que provocam. O 502 e o
+  500 não têm teste de conformidade: nenhuma falha do gateway chega a eles pela rota (viram bloco indisponível ou
+  503 com `custodias_indisponiveis`).
+- `ContratoOpenApiCatalogoTest` compara o `catalogo-campos.yml` local com o do contrato pelo conteúdo YAML
+  (comentários e fim de linha não contam) e falha listando cada caminho que diverge; e confere que cada bloco do
+  catálogo tem no `openapi.yaml` o schema `bloco.<nome>` com os mesmos campos, tipos e nulidade.
+- `ContratoOpenApiTest` mostra que o validador recusa o que diverge do contrato, sem subir a aplicação.
+
+**Onde o teste encontra o contrato.** Na propriedade de sistema `contrato.dir` (diretório com os dois
+arquivos), repassada pelo Surefire e pelo Failsafe; o padrão é a cópia versionada em
+`src/test/resources/contrato`, então `./mvnw verify` funciona sem rede e na IDE. Arquivo ausente no diretório
+falha o teste, nunca o pula.
+
+- **CI** (`.github/workflows/ci.yml`, todo PR e push): baixa a `main` em `target/contrato` e roda
+  `./mvnw -B verify -Dcontrato.dir=target/contrato`. Se a cópia versionada estiver diferente da baixada, o job
+  emite um aviso.
+- **Job diário** (`.github/workflows/contrato-diario.yml`, 06:17 de Brasília, ou manual): baixa a `main`, roda só
+  os testes de contrato e, se divergir, abre a issue "Contrato divergente de consultas-operacoes-credito" com os
+  testes que falharam e o diff (cópia versionada x `main` e catálogo local x `main`), ou atualiza a que já está
+  aberta, sem duplicar; quando volta a passar, comenta e fecha a issue. Só o job da issue tem `issues: write`.
+- **Local**: `scripts/baixar-contrato.sh` atualiza a cópia versionada a partir da `main`; para testar contra
+  outro diretório, `./mvnw verify -Dcontrato.dir=<diretório>`. Ao alinhar uma mudança de contrato, atualize a
+  cópia no mesmo PR.
+
+### CI
+
+O CI (`.github/workflows/ci.yml`, actions fixadas por SHA do commit) baixa o contrato e executa `./mvnw -B verify`, valida o
 docker-compose e o Collector, constrói a imagem Docker e, num job à parte, roda `terraform fmt -check` e
 `terraform init -backend=false` + `terraform validate` em `infra/ecs`. A imagem parte de bases Temurin
 fixadas por tag exata e digest, roda como o usuário numérico `10001` e termina o processo em `OutOfMemoryError`

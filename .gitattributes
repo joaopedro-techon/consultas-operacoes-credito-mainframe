@@ -5,3 +5,5 @@ mvnw text eol=lf
 localstack/** text eol=lf
 # Respostas de referencia comparadas byte a byte (FontePrimariaIT, FontePrimariaClienteContaIT)
 src/test/resources/respostas-esperadas/** -text
+# Cópia do contrato de consultas-operacoes-credito, byte a byte como na main de lá (ADR-0017)
+src/test/resources/contrato/** -text

@@ -19,9 +19,19 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
+      # Contrato HTTP (ADR-0017): openapi.yaml e catalogo-campos.yml da main de consultas-operacoes-credito. Os
+      # testes de conformidade (Contrato*) usam a versão baixada, não a cópia versionada em src/test/resources
+      - name: Contrato da visão consolidada
+        run: |
+          ./scripts/baixar-contrato.sh target/contrato
+          for arquivo in openapi.yaml catalogo-campos.yml; do
+            if ! cmp -s "target/contrato/$arquivo" "src/test/resources/contrato/$arquivo"; then
+              echo "::warning file=src/test/resources/contrato/$arquivo::Cópia versionada diferente da main de consultas-operacoes-credito; atualize com scripts/baixar-contrato.sh"
+            fi
+          done
       # Testes HTTP de caixa-preta sobem WireMock, Valkey e LocalStack (SQS) com Testcontainers (Docker do runner)
       - name: Build e testes
-        run: ./mvnw -B verify
+        run: ./mvnw -B verify -Dcontrato.dir=target/contrato
       - name: docker-compose e Collector válidos
         run: |
           docker compose config -q
