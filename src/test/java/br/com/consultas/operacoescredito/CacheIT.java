@@ -84,6 +84,14 @@ class CacheIT {
         proxyValkey.enable();
         // Reconexão imediata (sem esperar o backoff do Lettuce) depois de um teste com o Valkey fora
         conexoesDaAplicacao.resetConnection();
+        // Abre já a conexão compartilhada da aplicação: sem isto, o primeiro comando do teste paga a conexão com o
+        // connect-timeout de 20 ms e, num runner lento, falha (fail-open). Em CLIENTE/CONTA o primeiro comando é o
+        // SET da custódia, que se perderia
+        await().atMost(Duration.ofSeconds(5)).ignoreExceptions().until(() -> {
+            try (var conexao = conexoesDaAplicacao.getConnection()) {
+                return "PONG".equals(conexao.ping());
+            }
+        });
         circuitBreakers.circuitBreaker("valkey").reset();
         valkey.sync().flushall();
     }
