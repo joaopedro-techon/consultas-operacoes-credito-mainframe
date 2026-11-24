@@ -17,18 +17,18 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Testes de caixa-preta do {@code filter} (RSQL) na consulta OPERACAO da visão consolidada.
- * Valores esperados vêm da massa em {@code localstack/massa} (regras em {@code localstack/gerar_massa.py}):
+ * Testes de caixa-preta do {@code filter} (RSQL) na consulta OPERACAO da fonte primária.
+ * Valores esperados vêm da massa do gateway simulado em {@code wiremock/mappings}:
  * a operação 100000001 (ATIVA, MOBILE) tem 12 parcelas mensais a partir de 2026-06-21, 1 a 5 LIQUIDADA e
  * 6 a 12 ABERTA; 6 amortizações; 4 componentes (LIBERACAO 6000.00, IOF 97.68, IOF_FLAT 22.80, SEGURO 120.00);
  * saldo com 12 saldo_parcelas, 1 a 5 zeradas.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class FiltroRsqlIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final String OPERACAO = "100000001";
 
     private final RestTestClient client;

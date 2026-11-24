@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Fan-out da fonte primária em CLIENTE/CONTA com massas próprias registradas no WireMock durante o teste
- * (operações 9100000xx, que não existem na visão consolidada): teto de chamadas simultâneas por requisição,
+ * (operações 9100000xx, que não existem na massa do WireMock): teto de chamadas simultâneas por requisição,
  * falha de uma operação deixando só os blocos dela indisponíveis (ADR-0013), lista de uma custódia que falha
  * (503), listas paginadas em várias custódias com operação repetida (ADR-0012/0016) e correlationId em toda
  * chamada filha. Contexto próprio, com teto e timeout de resposta baixos, e sem LocalStack (só a fonte primária é

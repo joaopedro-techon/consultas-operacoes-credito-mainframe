@@ -17,15 +17,15 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Testes de caixa-preta do {@code fields} (seleção de campos) na visão consolidada.
- * Valores esperados vêm da massa em {@code localstack/massa} (regras em {@code localstack/gerar_massa.py}).
+ * Testes de caixa-preta do {@code fields} (seleção de campos) na fonte primária.
+ * Valores esperados vêm da massa do gateway simulado em {@code wiremock/mappings}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class SelecaoDeCamposIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
 
     private final RestTestClient client;
 

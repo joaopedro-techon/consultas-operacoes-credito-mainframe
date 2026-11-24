@@ -4,7 +4,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * Custódia em que uma operação de crédito está registrada. O código é o mesmo na SK da visão consolidada, na rota
+ * Custódia em que uma operação de crédito está registrada. O código é o mesmo no cache de custódia, na rota
  * do gateway da fonte primária e no campo {@code custodia} do bloco {@code operacao}. A ordem de declaração não é a
  * precedência: ela fica em {@link PrecedenciaDeCustodia}.
  */

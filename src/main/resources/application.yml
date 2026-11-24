@@ -1,6 +1,6 @@
 spring:
   application:
-    name: consultas-operacoes-credito
+    name: consultas-operacoes-credito-mainframe
   config:
     # Catálogo de campos por bloco (ADR-0005)
     import: classpath:catalogo-campos.yml
@@ -13,9 +13,9 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 30s
   data:
-    # Valkey (protocolo Redis): cache por bloco da visão consolidada. Timeout curto: o cache é só otimização
-    # (fail-open), lento é tratado como indisponível e a consulta segue no DynamoDB. Valkey standalone ou
-    # replication group (cluster mode desligado); o código não usa comandos multi-slot além do MGET (ADR-0011).
+    # Valkey (protocolo Redis): cache de custódia (ADR-0012), o mesmo cluster do serviço da visão consolidada
+    # (ADR-0017). Timeout curto: o cache é só otimização (fail-open), lento é tratado como indisponível e a consulta
+    # refaz a descoberta de custódia. Valkey standalone ou replication group (cluster mode desligado).
     redis:
       host: ${CONSULTAS_VALKEY_HOST:localhost}
       port: ${CONSULTAS_VALKEY_PORTA:6379}
@@ -66,59 +66,28 @@ management:
       probability: 1.0
   metrics:
     distribution:
-      # Buckets nos prazos do requisito não funcional (P99 80/200 ms, 504 em 150/400 ms)
+      # Buckets em torno do p99 do mainframe (500 ms por chamada) e dos prazos da rota (2,5 s e 6 s)
       slo:
         http.server.requests: 25ms,50ms,80ms,100ms,150ms,200ms,300ms,400ms,600ms,1s,2s
         consultas.dependencia: 5ms,10ms,25ms,50ms,80ms,100ms,200ms,400ms,1s
         consultas.etapa: 5ms,10ms,25ms,50ms,80ms,100ms,200ms,400ms,1s
 
 consultas:
-  # Rotas ligadas nesta instância (ADR-0015): cada serviço ECS liga só a sua; localmente, as duas
-  rotas-ativas: ${CONSULTAS_ROTAS_ATIVAS:visao-consolidada,fonte-primaria}
   # Custódias SF, F5, OD e NSF (ADR-0012): ordem que decide a custódia de uma operação encontrada em mais de uma
   custodia:
     precedencia: ${CONSULTAS_CUSTODIA_PRECEDENCIA:NSF,SF,F5,OD}
-  dynamodb:
-    tabela: ${CONSULTAS_DYNAMODB_TABELA:operacoes-credito}
-    regiao: ${AWS_REGION:sa-east-1}
-    endpoint: ${CONSULTAS_DYNAMODB_ENDPOINT:}
-    # GSIs esparsos por cliente e por conta (ADR-0001)
-    indice-cliente: ${CONSULTAS_DYNAMODB_INDICE_CLIENTE:gsi-cliente}
-    indice-conta: ${CONSULTAS_DYNAMODB_INDICE_CONTA:gsi-conta}
-    # Teto de uma chamada ao SDK (todas as tentativas); numa requisição vale o menor entre ele e o prazo restante
-    timeout-chamada: 1s
-    # Teto de cada tentativa: uma tentativa presa ainda deixa prazo para o retry do SDK
-    timeout-tentativa: ${CONSULTAS_DYNAMODB_TIMEOUT_TENTATIVA:100ms}
-    # CLIENTE/CONTA: lotes de BatchGetItem (100 chaves) em andamento ao mesmo tempo por consulta
-    max-lotes-simultaneos: ${CONSULTAS_DYNAMODB_MAX_LOTES_SIMULTANEOS:4}
-    # Cliente HTTP do SDK (Apache HttpClient 5) com pool próprio. Comporta o pior caso dos bulkheads (validado na
-    # subida): (dynamodb − dynamodb-cliente-conta) + dynamodb-cliente-conta × max-lotes-simultaneos
-    # = (180 − 40) + 40 × 4 = 300. Sem conexão em timeout-obter-conexao: 503, sem contar no circuito
-    pool:
-      max-conexoes: ${CONSULTAS_DYNAMODB_MAX_CONEXOES:300}
-      timeout-conexao: 100ms
-      timeout-obter-conexao: 20ms
-      timeout-resposta: 1s
-      ttl: 5m
-      max-ociosa: 30s
-    # Única camada de retry do DynamoDB: a do SDK (modo standard: throttling, 5xx e falha de conexão)
-    retry:
-      tentativas-extras: 2
-      backoff-base: 10ms
-      backoff-maximo: 50ms
-  # Cache por operação e bloco no Valkey, só na visão consolidada (ADR-0002); conexão em spring.data.redis
+  # Cache de custódia (custodia:{id}, ADR-0012) no Valkey: só o endereço da operação, nunca os dados (ADR-0002).
+  # Chave, valor e TTL são contrato com o serviço da visão consolidada (ADR-0017); conexão em spring.data.redis
   cache:
     habilitado: ${CONSULTAS_CACHE_HABILITADO:true}
-    ttl: ${CONSULTAS_CACHE_TTL:5m}
-    # Leituras e gravações em comandos de até 100 chaves, em pipeline (nenhum comando gigante no Valkey)
+    # Gravações em rodadas de até 100 SETs em pipeline (nenhuma rodada gigante no Valkey)
     chaves-por-comando: 100
-    # Consultas com mais chaves (operações × blocos) vão direto ao DynamoDB, sem ler nem gravar no cache
+    # Consultas com mais custódias que isto não gravam no cache
     max-chaves-por-consulta: ${CONSULTAS_CACHE_MAX_CHAVES_POR_CONSULTA:500}
     # Sem ao menos isto do prazo da requisição, nem tenta o cache (maior que spring.data.redis.timeout)
     prazo-minimo-restante: 20ms
     # Gravações fora da requisição em andamento; acima disso a gravação é descartada
     max-gravacoes-simultaneas: 32
-    # Cache de custódia (custodia:{id}, ADR-0012), nas duas rotas: só o endereço da operação, nunca os dados
     ttl-custodia: ${CONSULTAS_CACHE_TTL_CUSTODIA:24h}
   # Fonte primária: gateway do mainframe (WireMock no ambiente local); sem cache de dados (ADR-0002)
   fonte-primaria:
@@ -151,12 +120,9 @@ consultas:
     # No máximo 30 ocorrências por página; acima do teto o bloco fica indisponível, nunca truncado (ADR-0016)
     paginacao:
       max-paginas: ${CONSULTAS_FONTE_PRIMARIA_MAX_PAGINAS:20}
-  # Prazo da requisição por rota e tipo de consulta (fail fast → 504, ADR-0006). Visão consolidada acima dos P99
-  # alvo de 80 ms e 200 ms; fonte primária acima das rodadas sequenciais ao mainframe (p99 de 500 ms por chamada)
+  # Prazo da requisição por tipo de consulta (fail fast → 504, ADR-0006), acima das rodadas sequenciais ao
+  # mainframe (p99 de 500 ms por chamada)
   prazo:
-    operacao: ${CONSULTAS_PRAZO_OPERACAO:150ms}
-    cliente: ${CONSULTAS_PRAZO_CLIENTE:400ms}
-    conta: ${CONSULTAS_PRAZO_CONTA:400ms}
     fonte-primaria:
       operacao: ${CONSULTAS_PRAZO_FONTE_PRIMARIA_OPERACAO:2500ms}
       cliente: ${CONSULTAS_PRAZO_FONTE_PRIMARIA_CLIENTE:6s}
@@ -182,25 +148,13 @@ consultas:
       timeout-tentativa: 1s
       timeout-chamada: 3s
 
-# Resiliência por dependência (Resilience4j). A fonte primária tem instâncias próprias ("fontePrimaria"),
-# isoladas da visão consolidada ("dynamodb", "dynamodb-cliente-conta"); a classificação das falhas (o que conta
-# no circuito, o que é retentável) fica no código (FalhasDoGateway, ResilienciaDynamoDb), não aqui.
-# O DynamoDB não tem retry do Resilience4j: o retry é só o do SDK (consultas.dynamodb.retry).
+# Resiliência por dependência (Resilience4j). A fonte primária tem instâncias por custódia e rota
+# ("fontePrimaria-..."); a classificação das falhas (o que conta no circuito, o que é retentável) fica no código
+# (FalhasDoGateway), não aqui.
 resilience4j:
   circuitbreaker:
     instances:
-      # Visão consolidada: conta cada Query/BatchGetItem depois do retry do SDK (throttling e UnprocessedKeys
-      # restantes incluídos); aberto → 503 sem chamar o DynamoDB. Não contam: chamadas interrompidas, timeouts
-      # encurtados pelo prazo da requisição, pool de conexões esgotado e 4xx que não são throttling (ADR-0010)
-      dynamodb:
-        sliding-window-type: COUNT_BASED
-        sliding-window-size: 50
-        minimum-number-of-calls: 20
-        failure-rate-threshold: 50
-        wait-duration-in-open-state: 5s
-        permitted-number-of-calls-in-half-open-state: 5
-        automatic-transition-from-open-to-half-open-enabled: false
-      # Cache por bloco (Valkey): aberto, a consulta vai direto ao DynamoDB sem tentar o Valkey
+      # Cache de custódia (Valkey): aberto, a consulta refaz a descoberta sem tentar o Valkey
       valkey:
         sliding-window-type: COUNT_BASED
         sliding-window-size: 20
@@ -234,15 +188,6 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 2
   bulkhead:
     instances:
-      # Consultas simultâneas na visão consolidada (todos os tipos); cheio → 503. Junto com o de CLIENTE/CONTA e
-      # consultas.dynamodb.max-lotes-simultaneos, define as conexões necessárias no pool (consultas.dynamodb.pool)
-      dynamodb:
-        max-concurrent-calls: 180
-        max-wait-duration: 0ms
-      # Teto próprio de CLIENTE/CONTA (mais caras), abaixo do total: sempre sobram 140 vagas para OPERACAO
-      dynamodb-cliente-conta:
-        max-concurrent-calls: 40
-        max-wait-duration: 0ms
       # Base dos bulkheads por custódia (fontePrimaria-<CUSTODIA>, ADR-0014): uma custódia lenta ocupa no máximo
       # metade do pool (240) e nunca as vagas das outras
       fontePrimaria:
@@ -260,12 +205,6 @@ resilience4j:
         max-wait-duration: 1s
   ratelimiter:
     instances:
-      # Consultas por segundo na visão consolidada; sem permissão → 503 na hora. Pouco acima do que uma task de
-      # 2 vCPU sustenta (~950 req/s, docs/capacidade-ecs-fargate.md): acima disso a CPU saturaria antes
-      dynamodb:
-        limit-for-period: ${CONSULTAS_DYNAMODB_LIMITE_POR_SEGUNDO:1000}
-        limit-refresh-period: 1s
-        timeout-duration: 0s
       # Cota do mainframe nesta task: limit-for-period é substituído na subida por
       # consultas.fonte-primaria.cota (chamadas-por-segundo ÷ max-tasks, proporcional ao período: 50 a cada 100 ms
       # para 500/s). Período curto: tasks fora de sincronia não somam o dobro da cota numa janela de 1 s. Cada

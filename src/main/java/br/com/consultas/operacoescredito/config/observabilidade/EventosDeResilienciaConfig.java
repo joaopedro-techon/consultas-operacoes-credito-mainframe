@@ -20,7 +20,7 @@ import java.util.Locale;
 import java.util.function.Consumer;
 
 /**
- * Logs WARN dos eventos de resiliência de todas as instâncias (fonte primária por custódia e rota, DynamoDB,
+ * Logs WARN dos eventos de resiliência de todas as instâncias (fonte primária por custódia e rota,
  * Valkey, SQS), inclusive as criadas depois da subida:
  * <ul>
  *     <li>toda tentativa de retry: instância, tentativa N de M, espera e motivo; e o retry esgotado;</li>

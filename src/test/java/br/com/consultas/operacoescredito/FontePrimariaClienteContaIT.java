@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @AutoConfigureTracing
-@Import({VisaoConsolidadaContainers.class, FontePrimariaContainers.class})
+@Import(FontePrimariaContainers.class)
 class FontePrimariaClienteContaIT {
 
     private static final String ROTA_FONTE_PRIMARIA = "/v1/operacoes-credito/fonte-primaria";

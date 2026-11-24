@@ -6,27 +6,24 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import java.time.Duration;
 
 /**
- * Cache por bloco da visão consolidada. A conexão com o Valkey (host, porta, timeouts) fica em
+ * Cache de custódia no Valkey (ADR-0012). A conexão com o Valkey (host, porta, timeouts) fica em
  * {@code spring.data.redis.*}; o circuit breaker em {@code resilience4j.circuitbreaker.instances.valkey}.
  *
- * @param habilitado              {@code false} desliga o cache (toda leitura vai ao DynamoDB)
- * @param ttl                     tempo de vida de cada bloco no cache
- * @param chavesPorComando        chaves por {@code MGET} e {@code SET}s por rodada de gravação: leituras e
- *                                gravações grandes viram vários comandos pequenos em pipeline, cada um dentro do
- *                                timeout de comando, sem segurar o Valkey (single-thread) num comando gigante
- * @param maxChavesPorConsulta    acima disso (operações × blocos) a consulta nem lê nem grava no cache: vai direto
- *                                ao DynamoDB ({@code resultado=ignorado})
- * @param prazoMinimoRestante     com menos que isso do prazo da requisição a leitura no cache é pulada
- *                                ({@code resultado=ignorado}); deve ser maior que {@code spring.data.redis.timeout}
- *                                para que um timeout do Valkey nunca seja encurtado pelo prazo
+ * @param habilitado              {@code false} desliga o cache (toda consulta refaz a descoberta de custódia)
+ * @param chavesPorComando        {@code SET}s por rodada de gravação: gravações grandes viram vários comandos
+ *                                pequenos em pipeline, cada um dentro do timeout de comando, sem segurar o Valkey
+ *                                (single-thread) numa rodada gigante
+ * @param maxChavesPorConsulta    acima disso (custódias gravadas de uma vez) a gravação é descartada
+ * @param prazoMinimoRestante     com menos que isso do prazo da requisição a leitura no cache é pulada; deve ser
+ *                                maior que {@code spring.data.redis.timeout} para que um timeout do Valkey nunca
+ *                                seja encurtado pelo prazo
  * @param maxGravacoesSimultaneas gravações em andamento (fora da requisição, em virtual threads); com todas as
  *                                vagas ocupadas, a gravação nova é descartada (o cache é só otimização)
- * @param ttlCustodia             tempo de vida da custódia de uma operação no cache de custódia (ADR-0012); bem
- *                                maior que {@code ttl}, para que blocos em cache quase sempre tenham a custódia
+ * @param ttlCustodia             tempo de vida da custódia de uma operação; contrato com o serviço da visão
+ *                                consolidada, que usa a mesma chave no mesmo Valkey (ADR-0017)
  */
 @ConfigurationProperties("consultas.cache")
 public record CacheProperties(@DefaultValue("true") boolean habilitado,
-                              @DefaultValue("5m") Duration ttl,
                               @DefaultValue("100") int chavesPorComando,
                               @DefaultValue("500") int maxChavesPorConsulta,
                               @DefaultValue("20ms") Duration prazoMinimoRestante,
@@ -34,9 +31,6 @@ public record CacheProperties(@DefaultValue("true") boolean habilitado,
                               @DefaultValue("24h") Duration ttlCustodia) {
 
     public CacheProperties {
-        if (ttl.isNegative() || ttl.isZero()) {
-            throw new IllegalArgumentException("consultas.cache.ttl deve ser positivo: " + ttl);
-        }
         if (ttlCustodia.isNegative() || ttlCustodia.isZero()) {
             throw new IllegalArgumentException("consultas.cache.ttl-custodia deve ser positivo: " + ttlCustodia);
         }

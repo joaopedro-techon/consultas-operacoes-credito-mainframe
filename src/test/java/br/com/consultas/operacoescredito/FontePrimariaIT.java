@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureRestTestClient
 // Sem isto o Spring Boot desliga o tracing nos testes, e o traceparent não é propagado ao gateway
 @AutoConfigureTracing
-@Import({VisaoConsolidadaContainers.class, FontePrimariaContainers.class})
+@Import(FontePrimariaContainers.class)
 class FontePrimariaIT {
 
     private static final String ROTA_FONTE_PRIMARIA = "/v1/operacoes-credito/fonte-primaria";

@@ -20,15 +20,15 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Testes de caixa-preta das consultas CLIENTE e CONTA na visão consolidada.
- * Valores esperados vêm da massa em {@code localstack/massa} (especificação em {@code localstack/gerar_massa.py}).
+ * Testes de caixa-preta das consultas CLIENTE e CONTA na fonte primária.
+ * Valores esperados vêm da massa do gateway simulado em {@code wiremock/mappings}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class ConsultaClienteContaIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final String HEADER_INDISPONIVEIS = "x-blocos-indisponiveis";
 
     private final RestTestClient client;
@@ -189,7 +189,7 @@ class ConsultaClienteContaIT {
                 .jsonPath("$.detail").value(String.class, detail -> assertThat(detail).contains("conta"));
     }
 
-    @ParameterizedTest(name = "conta com {0} dígitos -> 400 sem ir ao DynamoDB")
+    @ParameterizedTest(name = "conta com {0} dígitos -> 400 sem ir ao mainframe")
     @ValueSource(ints = {21, 3000})
     void contaLongaDemaisDevolve400(int digitos) {
         consultar("CONTA", "conta=" + "1".repeat(digitos))

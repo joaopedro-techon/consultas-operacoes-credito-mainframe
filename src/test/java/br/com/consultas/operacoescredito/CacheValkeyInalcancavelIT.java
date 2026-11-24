@@ -23,20 +23,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Valkey que aceita a conexão e nunca responde (Toxiproxy {@code timeout} sem prazo: os bytes somem), com um prazo
- * de OPERACAO próximo do real: o cache custa no máximo o timeout de conexão/comando por consulta, que segue no
- * DynamoDB dentro do prazo, e o circuito do Valkey abre. Diferente de {@code CacheIT}, onde o proxy desligado
+ * de OPERACAO curto: o cache de custódia custa no máximo o timeout de conexão/comando por consulta, que refaz a
+ * descoberta de custódia no mainframe dentro do prazo, e o circuito do Valkey abre. Diferente de {@code CacheIT}, onde o proxy desligado
  * recusa a conexão na hora.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "consultas.prazo.operacao=" + CacheValkeyInalcancavelIT.PRAZO_OPERACAO_MS + "ms",
+        "consultas.prazo.fonte-primaria.operacao=" + CacheValkeyInalcancavelIT.PRAZO_OPERACAO_MS + "ms",
         "resilience4j.circuitbreaker.instances.valkey.wait-duration-in-open-state=60s"})
 @AutoConfigureRestTestClient
-@Import({VisaoConsolidadaContainers.class, CacheContainers.class})
+@Import({FontePrimariaContainers.class, CacheContainers.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class CacheValkeyInalcancavelIT {
 
     static final int PRAZO_OPERACAO_MS = 300;
-    private static final String ROTA = "/v1/operacoes-credito?id_operacao=100000001&expand=parcelas";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria?id_operacao=100000001&expand=parcelas";
 
     private final RestTestClient client;
     private final Proxy proxyValkey;
@@ -54,10 +54,15 @@ class CacheValkeyInalcancavelIT {
 
     @BeforeAll
     void aquecer() {
-        // Primeiras chamadas (classes, conexões com DynamoDB e Valkey) fora das medições de tempo
-        for (int i = 0; i < 5; i++) {
-            consultar();
+        // Primeiras chamadas (classes, conexões com o gateway e o Valkey) fora das medições de tempo. Frias, elas
+        // podem passar do prazo curto (504): o aquecimento não é medição, então só a última precisa ser 200.
+        for (int i = 0; i < 10; i++) {
+            client.get().uri(ROTA)
+                    .header("x-tipo-consulta", "OPERACAO")
+                    .exchange()
+                    .expectBody().returnResult();
         }
+        consultar();
     }
 
     @AfterEach

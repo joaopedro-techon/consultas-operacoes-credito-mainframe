@@ -17,7 +17,7 @@ import java.util.HexFormat;
 
 /**
  * Liga a publicação do evento de consumo ({@code consultas.eventos.habilitado=true}, desligada nos demais testes)
- * apontando para a fila criada pelo init do LocalStack de {@link VisaoConsolidadaContainers}
+ * apontando para a fila criada pelo init do LocalStack de {@link SqsContainers}
  * ({@code localstack/init/ready.d/00-eventos-consumo.sh}). Envio a cada 100 ms, para os testes não esperarem 1 s.
  */
 @TestConfiguration(proxyBeanMethods = false)

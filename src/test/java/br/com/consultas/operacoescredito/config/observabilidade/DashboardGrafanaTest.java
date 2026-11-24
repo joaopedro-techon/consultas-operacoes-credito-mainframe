@@ -10,8 +10,9 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * O dashboard do Grafana mostra as duas rotas da API: o filtro de {@code uri} das métricas HTTP não pode deixar de
- * fora a fonte primária, cujo template de URI é {@code /v1/operacoes-credito/{rota}}.
+ * O dashboard do Grafana mostra a rota da API: o filtro de {@code uri} das métricas HTTP precisa pegar o template
+ * {@code /v1/operacoes-credito/fonte-primaria}, e o de antes da separação dos repositórios
+ * ({@code /v1/operacoes-credito/{rota}}, ADR-0017), para o histórico continuar no painel.
  */
 class DashboardGrafanaTest {
 
@@ -20,14 +21,14 @@ class DashboardGrafanaTest {
     private static final Pattern FILTRO_URI = Pattern.compile("uri(=~?)\\\\\"([^\\\\]*)\\\\\"");
 
     @Test
-    void filtrosDeUriCobremAVisaoConsolidadaEAFontePrimaria() throws IOException {
+    void filtrosDeUriCobremARotaDaFontePrimaria() throws IOException {
         var dashboard = Files.readString(DASHBOARD);
         var filtros = FILTRO_URI.matcher(dashboard).results().toList();
 
         assertThat(filtros).isNotEmpty().allSatisfy(filtro -> {
             assertThat(filtro.group(1)).as("filtro por regex, não exato: %s", filtro.group()).isEqualTo("=~");
             var regex = Pattern.compile(filtro.group(2));
-            assertThat(regex.matcher("/v1/operacoes-credito").matches()).isTrue();
+            assertThat(regex.matcher("/v1/operacoes-credito/fonte-primaria").matches()).isTrue();
             assertThat(regex.matcher("/v1/operacoes-credito/{rota}").matches()).isTrue();
             assertThat(regex.matcher("/actuator/health").matches()).isFalse();
         });

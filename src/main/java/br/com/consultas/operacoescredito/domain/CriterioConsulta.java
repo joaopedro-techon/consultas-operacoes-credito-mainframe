@@ -55,7 +55,7 @@ public sealed interface CriterioConsulta {
     record PorConta(String conta, OptionalInt limiteOperacoes) implements CriterioConsulta {
 
         /**
-         * Maior número de dígitos aceito na conta: folga sobre os 15 dígitos das contas da massa e muito abaixo do limite de chave do DynamoDB, para que uma conta absurda seja 400 e não uma falha na
+         * Maior número de dígitos aceito na conta: folga sobre os 15 dígitos das contas da massa e muito abaixo de qualquer limite de chave, para que uma conta absurda seja 400 e não uma falha na
          * fonte.
          */
         public static final int TAMANHO_MAXIMO_CONTA = 20;

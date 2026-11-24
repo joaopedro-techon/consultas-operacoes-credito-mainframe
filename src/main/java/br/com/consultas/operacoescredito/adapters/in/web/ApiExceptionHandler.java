@@ -34,11 +34,6 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problema(HttpStatus.NOT_FOUND, "Operação de crédito não encontrada", e.getMessage());
     }
 
-    @ExceptionHandler(RotaInativaException.class)
-    ProblemDetail rotaInativa(RotaInativaException e) {
-        return problema(HttpStatus.NOT_FOUND, "Rota não encontrada", e.getMessage());
-    }
-
     @ExceptionHandler(RequisicaoInvalidaException.class)
     ProblemDetail requisicaoInvalida(RequisicaoInvalidaException e) {
         return problema(HttpStatus.BAD_REQUEST, "Requisição inválida", e.getMessage());

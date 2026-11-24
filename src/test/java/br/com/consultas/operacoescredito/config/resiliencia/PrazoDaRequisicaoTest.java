@@ -65,18 +65,16 @@ class PrazoDaRequisicaoTest {
     void prazoPorTipoDeConsultaTemOsDefaultsDoRequisitoEExigeValorPositivo() {
         var fontePrimaria = new PrazoProperties.FontePrimaria(Duration.ofMillis(2500), Duration.ofSeconds(6),
                 Duration.ofSeconds(6));
-        var prazos = new PrazoProperties(Duration.ofMillis(150), Duration.ofMillis(400), Duration.ofMillis(400),
-                fontePrimaria);
+        var prazos = new PrazoProperties(fontePrimaria);
 
-        assertThat(prazos.de(TipoConsulta.OPERACAO)).isEqualTo(Duration.ofMillis(150));
-        assertThat(prazos.de(TipoConsulta.CLIENTE)).isEqualTo(Duration.ofMillis(400));
-        assertThat(prazos.de(TipoConsulta.CONTA)).isEqualTo(Duration.ofMillis(400));
-        assertThat(prazos.de(TipoConsulta.OPERACAO, true)).isEqualTo(Duration.ofMillis(2500));
-        assertThat(prazos.de(TipoConsulta.CLIENTE, true)).isEqualTo(Duration.ofSeconds(6));
-        assertThat(prazos.de(TipoConsulta.CONTA, false)).isEqualTo(Duration.ofMillis(400));
-        assertThatThrownBy(() -> new PrazoProperties(Duration.ZERO, Duration.ofMillis(1), Duration.ofMillis(1),
-                fontePrimaria)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(prazos.de(TipoConsulta.OPERACAO)).isEqualTo(Duration.ofMillis(2500));
+        assertThat(prazos.de(TipoConsulta.CLIENTE)).isEqualTo(Duration.ofSeconds(6));
+        assertThat(prazos.de(TipoConsulta.CONTA)).isEqualTo(Duration.ofSeconds(6));
+        assertThatThrownBy(() -> new PrazoProperties.FontePrimaria(Duration.ZERO, Duration.ofMillis(1),
+                Duration.ofMillis(1))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new PrazoProperties.FontePrimaria(Duration.ofMillis(1), Duration.ZERO,
                 Duration.ofMillis(1))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new PrazoProperties.FontePrimaria(Duration.ofMillis(1), Duration.ofMillis(1),
+                Duration.ofMillis(-1))).isInstanceOf(IllegalArgumentException.class);
     }
 }

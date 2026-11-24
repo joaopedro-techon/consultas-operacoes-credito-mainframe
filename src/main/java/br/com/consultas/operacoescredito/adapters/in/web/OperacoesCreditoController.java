@@ -1,11 +1,8 @@
 package br.com.consultas.operacoescredito.adapters.in.web;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -20,35 +17,28 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Rota da fonte primária ({@value #CAMINHO_FONTE_PRIMARIA}), a única deste serviço. O contrato é o mesmo da visão
+ * consolidada, que roda em outro serviço (ADR-0017); o ALB separa os dois pelo caminho.
+ */
 @RestController
-@RequestMapping("/v1/operacoes-credito")
+@RequestMapping(OperacoesCreditoController.CAMINHO_FONTE_PRIMARIA)
 class OperacoesCreditoController {
 
     static final String HEADER_BLOCOS_INDISPONIVEIS = "x-blocos-indisponiveis";
 
-    /** Segmento da rota da fonte primária; sem ele, a consulta vai à visão consolidada. */
-    static final String FONTE_PRIMARIA = "fonte-primaria";
-    /** Caminho da rota da fonte primária (o prazo da requisição e o ALB separam as rotas por ele). */
-    static final String CAMINHO_FONTE_PRIMARIA = "/v1/operacoes-credito/" + FONTE_PRIMARIA;
+    /** Caminho da rota da fonte primária. */
+    static final String CAMINHO_FONTE_PRIMARIA = "/v1/operacoes-credito/fonte-primaria";
 
-    private final ObjectProvider<ConsultarOperacoesUseCase> visaoConsolidada;
-    private final ObjectProvider<ConsultarOperacoesUseCase> fontePrimaria;
+    private final ConsultarOperacoesUseCase consultarOperacoes;
 
-    /** Cada rota só existe se estiver ativa nesta instância ({@code consultas.rotas-ativas}, ADR-0015). */
-    OperacoesCreditoController(ObjectProvider<ConsultarOperacoesUseCase> visaoConsolidada,
-                               @Qualifier("fontePrimaria") ObjectProvider<ConsultarOperacoesUseCase> fontePrimaria) {
-        this.visaoConsolidada = visaoConsolidada;
-        this.fontePrimaria = fontePrimaria;
+    OperacoesCreditoController(ConsultarOperacoesUseCase consultarOperacoes) {
+        this.consultarOperacoes = consultarOperacoes;
     }
 
-    /**
-     * Consulta na visão consolidada ({@code /v1/operacoes-credito}) ou na fonte primária
-     * ({@code /v1/operacoes-credito/fonte-primaria}): mesmo contrato, mesmo caso de uso, outra fonte.
-     * Parâmetro do contrato repetido é 400 (o Spring juntaria os valores com vírgula).
-     */
-    @GetMapping({"", "/{rota:" + FONTE_PRIMARIA + "}"})
+    /** Parâmetro do contrato repetido é 400 (o Spring juntaria os valores com vírgula). */
+    @GetMapping
     ResponseEntity<ConsultaResponse> consultar(
-            @PathVariable(name = "rota", required = false) String rota,
             @RequestHeader(name = ParametrosConsulta.HEADER_TIPO_CONSULTA, required = false) String tipoConsulta,
             @RequestParam(name = ParametrosConsulta.ID_OPERACAO, required = false) String idOperacao,
             @RequestParam(name = ParametrosConsulta.CPF_CNPJ, required = false) String cpfCnpj,
@@ -60,10 +50,6 @@ class OperacoesCreditoController {
             HttpServletRequest requisicao) {
         ParametrosConsulta.rejeitarRepetidos(requisicao.getParameterMap());
         var parametros = new ParametrosConsulta(tipoConsulta, idOperacao, cpfCnpj, conta, limiteOperacoes, expand, fields);
-        var consultarOperacoes = (rota == null ? visaoConsolidada : fontePrimaria).getIfAvailable();
-        if (consultarOperacoes == null) {
-            throw new RotaInativaException(rota == null ? "visao-consolidada" : FONTE_PRIMARIA);
-        }
         var operacoes = consultarOperacoes.consultar(new Consulta(
                 parametros.criterio(), parametros.blocos(), parametros.campos(), FiltroRsql.traduzir(filter)));
         requisicao.setAttribute(RegistroDeConsumoHttp.ATRIBUTO_QUANTIDADE_OPERACOES, operacoes.size());

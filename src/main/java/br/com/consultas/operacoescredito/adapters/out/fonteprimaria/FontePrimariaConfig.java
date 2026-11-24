@@ -1,7 +1,5 @@
 package br.com.consultas.operacoescredito.adapters.out.fonteprimaria;
 
-import br.com.consultas.operacoescredito.config.RotaAtiva;
-
 import br.com.consultas.operacoescredito.adapters.out.cache.CacheDeCustodia;
 import br.com.consultas.operacoescredito.application.port.out.FonteDeOperacoes;
 import br.com.consultas.operacoescredito.config.observabilidade.MetricasDeCustodia;
@@ -38,16 +36,12 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
 /**
  * Fonte primária: {@code @HttpExchange} sobre {@code RestClient} + Apache HttpClient 5 com pool próprio, e
- * resiliência própria ({@link ResilienciaFontePrimaria}), isolada da visão consolidada.
- * Os beans não são candidatos por tipo ({@code defaultCandidate = false}): a injeção de
- * {@link FonteDeOperacoes} sem qualificador continua sendo a visão consolidada, e a rota da fonte
- * primária pede {@value #FONTE_PRIMARIA} explicitamente.
+ * resiliência própria ({@link ResilienciaFontePrimaria}).
  */
 @Configuration(proxyBeanMethods = false)
-@RotaAtiva(RotaAtiva.Rota.FONTE_PRIMARIA)
 class FontePrimariaConfig {
 
-    /** Nome (e qualificador) do bean da porta de saída da fonte primária. */
+    /** Nome do bean da porta de saída da fonte primária. */
     static final String FONTE_PRIMARIA = "fontePrimaria";
     private static final String HTTP_CLIENT = "fontePrimariaHttpClient";
 
@@ -95,7 +89,7 @@ class FontePrimariaConfig {
      * e só se o prazo comportar) é aplicada pela {@link ResilienciaFontePrimaria} a cada instância por custódia e
      * rota (ADR-0014); números de tentativas, janelas e bulkheads ficam no {@code application.yml}.
      */
-    @Bean(name = FONTE_PRIMARIA, defaultCandidate = false)
+    @Bean(name = FONTE_PRIMARIA)
     FonteDeOperacoes fontePrimaria(FontePrimariaProperties properties, RestClient.Builder restClientBuilder,
                                    @Qualifier(HTTP_CLIENT) CloseableHttpClient httpClient,
                                    ResourceLoader resourceLoader, ObservationRegistry observationRegistry,

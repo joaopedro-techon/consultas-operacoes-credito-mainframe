@@ -1,11 +1,9 @@
 package br.com.consultas.operacoescredito.adapters.out.cache;
 
-import br.com.consultas.operacoescredito.config.observabilidade.CacheDaRequisicao;
 import br.com.consultas.operacoescredito.config.resiliencia.PrazoDaRequisicao;
-import br.com.consultas.operacoescredito.domain.Bloco;
+import br.com.consultas.operacoescredito.domain.Custodia;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -27,15 +25,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Cache com um Valkey em memória que responde, atrasa ou falha como o teste mandar: divisão em comandos pequenos
- * em pipeline, consultas grandes e prazo curto sem tocar no Valkey, gravação fora da requisição e resultado
- * {@code indisponivel} na métrica.
+ * Cache de custódia com um Valkey em memória que responde, atrasa ou falha como o teste mandar: chave, valor e TTL
+ * do contrato, gravação fora da requisição em rodadas pequenas em pipeline, prazo curto sem tocar no Valkey e
+ * fail-open com o circuit breaker.
  */
-class ValkeyCacheDeBlocosTest {
+class ValkeyCacheDeCustodiaTest {
 
     private static final Duration TIMEOUT_COMANDO = Duration.ofMillis(500);
+    private static final long TTL_CUSTODIA_MS = Duration.ofHours(24).toMillis();
 
-    private final SimpleMeterRegistry metricas = new SimpleMeterRegistry();
     private final ValkeyFalso valkey = new ValkeyFalso();
     private final CircuitBreaker circuitBreaker = CircuitBreaker.of("valkey", CircuitBreakerConfig.custom()
             .slidingWindowSize(100).minimumNumberOfCalls(100).build());
@@ -44,112 +42,121 @@ class ValkeyCacheDeBlocosTest {
     @AfterEach
     void limpar() {
         PrazoDaRequisicao.encerrar();
-        CacheDaRequisicao.encerrar();
     }
 
     @Test
-    void leituraGrandeViraMgetsDeAteCemChavesEmPipeline() {
+    void leCustodiaPelaChaveDoContratoNumMgetDeUmaChave() {
         var cache = cache(Runnable::run, 500);
-        var chaves = chaves(250);
-        valkey.guardar(chaves.get(0), "a");
-        valkey.guardar(chaves.get(249), "b");
+        valkey.guardar("custodia:100000001", "NSF");
 
-        var encontrados = cache.buscar(chaves);
-
-        assertThat(valkey.tamanhosDosMget()).containsExactly(100, 100, 50);
-        assertThat(valkey.maximoPendentes()).as("todos enviados antes da primeira resposta").isEqualTo(3);
-        assertThat(encontrados).containsOnlyKeys(chaves.get(0), chaves.get(249));
-        assertThat(metrica("hit")).isEqualTo(2);
-        assertThat(metrica("miss")).isEqualTo(248);
+        assertThat(cache.buscar(100000001L)).contains(Custodia.NSF);
+        assertThat(valkey.tamanhosDosMget()).containsExactly(1);
     }
 
     @Test
-    void gravacaoGrandeViraRodadasDeAteCemSetsComTtl() {
+    void custodiaAusenteOuForaDoFormatoVemVazia() {
         var cache = cache(Runnable::run, 500);
-        var blocos = new HashMap<ChaveDeBloco, byte[]>();
-        chaves(250).forEach(chave -> blocos.put(chave, bytes("x")));
+        valkey.guardar("custodia:100000002", "XPTO");
 
-        cache.gravar(blocos);
+        assertThat(cache.buscar(100000001L)).isEmpty();
+        assertThat(cache.buscar(100000002L)).isEmpty();
+    }
+
+    @Test
+    void gravaOCodigoDaCustodiaComOTtlDoContrato() {
+        var cache = cache(Runnable::run, 500);
+
+        cache.gravar(100000001L, Custodia.F5);
+
+        assertThat(valkey.valor("custodia:100000001")).isEqualTo("F5");
+        assertThat(valkey.ttls()).containsExactly(TTL_CUSTODIA_MS);
+    }
+
+    @Test
+    void gravacaoGrandeViraRodadasDeAteCemSetsEmPipeline() {
+        var cache = cache(Runnable::run, 500);
+        var custodias = new HashMap<Long, Custodia>();
+        for (long id = 1; id <= 250; id++) {
+            custodias.put(id, Custodia.SF);
+        }
+
+        cache.gravarTodas(custodias);
 
         assertThat(valkey.sets()).hasValue(250);
         assertThat(valkey.maximoPendentes()).as("SETs em pipeline, no máximo 100 por rodada").isEqualTo(100);
-        assertThat(valkey.ttls()).containsOnly(Duration.ofMinutes(5).toMillis());
+        assertThat(valkey.ttls()).containsOnly(TTL_CUSTODIA_MS);
     }
 
     @Test
-    void gravacaoNaoRodaNaThreadDaRequisicao() {
-        var cache = cache(gravacoesAgendadas::add, 500);
+    void gravacaoComCustodiasDemaisEDescartada() {
+        var cache = cache(Runnable::run, 2);
 
-        cache.gravar(Map.of(chaves(1).getFirst(), bytes("x")));
+        cache.gravarTodas(Map.of(1L, Custodia.SF, 2L, Custodia.OD, 3L, Custodia.F5));
+        cache.gravarTodas(Map.of());
+
+        assertThat(valkey.sets()).hasValue(0);
+    }
+
+    @Test
+    void gravacaoERemocaoNaoRodamNaThreadDaRequisicao() {
+        var cache = cache(gravacoesAgendadas::add, 500);
+        valkey.guardar("custodia:100000003", "SF");
+
+        cache.gravar(100000001L, Custodia.SF);
 
         assertThat(valkey.sets()).hasValue(0);
         assertThat(gravacoesAgendadas).hasSize(1);
         gravacoesAgendadas.getFirst().run();
         assertThat(valkey.sets()).hasValue(1);
+
+        cache.remover(100000003L);
+        assertThat(valkey.valor("custodia:100000003")).isEqualTo("SF");
+        gravacoesAgendadas.get(1).run();
+        assertThat(valkey.valor("custodia:100000003")).isNull();
     }
 
     @Test
     void semVagaDeGravacaoAGravacaoEDescartada() {
         var cache = cache(gravacoesAgendadas::add, 500);
-        for (int i = 0; i < 2; i++) {
-            cache.gravar(Map.of(chaves(1).getFirst(), bytes("x")));
-        }
 
-        // max-gravacoes-simultaneas = 1: a segunda nem foi agendada
+        cache.gravar(1L, Custodia.SF);
+        cache.gravar(2L, Custodia.SF);
+        cache.remover(3L);
+
+        // max-gravacoes-simultaneas = 1: só a primeira foi agendada
         assertThat(gravacoesAgendadas).hasSize(1);
-    }
-
-    @Test
-    void consultaComChavesDemaisNaoTocaNoValkeyEContaIgnorado() {
-        var cache = cache(Runnable::run, 100);
-        var contagem = CacheDaRequisicao.iniciar();
-
-        assertThat(cache.buscar(chaves(101))).isEmpty();
-        cache.gravar(Map.of(chaves(1).getFirst(), bytes("x")));
-        var muitos = new HashMap<ChaveDeBloco, byte[]>();
-        chaves(101).forEach(chave -> muitos.put(chave, bytes("x")));
-        cache.gravar(muitos);
-
-        assertThat(valkey.tamanhosDosMget()).isEmpty();
-        assertThat(valkey.sets()).hasValue(1);
-        assertThat(metrica("ignorado")).isEqualTo(101);
-        assertThat(contagem.misses()).containsEntry("parcelas", 101L);
     }
 
     @Test
     void poucoPrazoRestanteNaoTocaNoValkey() {
         var cache = cache(Runnable::run, 500);
+        valkey.guardar("custodia:100000001", "SF");
         PrazoDaRequisicao.iniciar(Duration.ofMillis(5));
 
-        assertThat(cache.buscar(chaves(3))).isEmpty();
-
+        assertThat(cache.buscar(100000001L)).isEmpty();
         assertThat(valkey.tamanhosDosMget()).isEmpty();
-        assertThat(metrica("ignorado")).isEqualTo(3);
     }
 
     @Test
-    void valkeyForaContaIndisponivelEFalhaNoCircuito() {
+    void valkeyForaViraNaoSeiEFalhaNoCircuito() {
         var cache = cache(Runnable::run, 500);
         valkey.falharComConexao();
-        var contagem = CacheDaRequisicao.iniciar();
 
-        assertThat(cache.buscar(chaves(3))).isEmpty();
-
-        assertThat(metrica("indisponivel")).isEqualTo(3);
-        assertThat(metrica("miss")).isZero();
-        assertThat(contagem.misses()).containsEntry("parcelas", 3L);
+        assertThat(cache.buscar(100000001L)).isEmpty();
         assertThat(circuitBreaker.getMetrics().getNumberOfFailedCalls()).isEqualTo(1);
     }
 
     @Test
-    void circuitoAbertoContaIndisponivelSemChamarOValkey() {
+    void circuitoAbertoNaoChamaOValkey() {
         var cache = cache(Runnable::run, 500);
+        valkey.guardar("custodia:100000001", "SF");
         circuitBreaker.transitionToOpenState();
 
-        assertThat(cache.buscar(chaves(2))).isEmpty();
+        assertThat(cache.buscar(100000001L)).isEmpty();
+        cache.gravar(100000002L, Custodia.SF);
 
         assertThat(valkey.tamanhosDosMget()).isEmpty();
-        assertThat(metrica("indisponivel")).isEqualTo(2);
+        assertThat(valkey.sets()).hasValue(0);
     }
 
     @Test
@@ -158,32 +165,18 @@ class ValkeyCacheDeBlocosTest {
         valkey.naoResponder();
 
         var inicio = System.nanoTime();
-        assertThat(cache.buscar(chaves(3))).isEmpty();
+        assertThat(cache.buscar(100000001L)).isEmpty();
 
         assertThat(Duration.ofNanos(System.nanoTime() - inicio)).isLessThan(Duration.ofSeconds(1));
-        assertThat(metrica("indisponivel")).isEqualTo(3);
         assertThat(circuitBreaker.getMetrics().getNumberOfFailedCalls()).isEqualTo(1);
     }
 
-    private ValkeyCacheDeBlocos cache(Executor gravacoes, int maxChavesPorConsulta) {
+    private ValkeyCacheDeCustodia cache(Executor gravacoes, int maxChavesPorConsulta) {
         // Uma gravação em andamento por vez
-        var properties = new CacheProperties(true, Duration.ofMinutes(5), 100, maxChavesPorConsulta,
-                Duration.ofMillis(20), 1, Duration.ofHours(24));
-        return new ValkeyCacheDeBlocos(valkey, circuitBreaker, ObservationRegistry.NOOP, metricas, properties,
+        var properties = new CacheProperties(true, 100, maxChavesPorConsulta, Duration.ofMillis(20), 1,
+                Duration.ofHours(24));
+        return new ValkeyCacheDeCustodia(valkey, circuitBreaker, ObservationRegistry.NOOP, properties,
                 TIMEOUT_COMANDO, gravacoes);
-    }
-
-    private double metrica(String resultado) {
-        return metricas.find(ValkeyCacheDeBlocos.METRICA_CACHE).tag("resultado", resultado).counters().stream()
-                .mapToDouble(contador -> contador.count()).sum();
-    }
-
-    private static List<ChaveDeBloco> chaves(int quantidade) {
-        var chaves = new ArrayList<ChaveDeBloco>();
-        for (int i = 1; i <= quantidade; i++) {
-            chaves.add(new ChaveDeBloco(i, Bloco.PARCELAS));
-        }
-        return chaves;
     }
 
     private static byte[] bytes(String valor) {
@@ -207,8 +200,13 @@ class ValkeyCacheDeBlocosTest {
         private volatile boolean semConexao;
         private volatile boolean semResposta;
 
-        void guardar(ChaveDeBloco chave, String valor) {
-            dados.put(chave.valor(), bytes(valor));
+        void guardar(String chave, String valor) {
+            dados.put(chave, bytes(valor));
+        }
+
+        String valor(String chave) {
+            var valor = dados.get(chave);
+            return valor == null ? null : new String(valor, StandardCharsets.UTF_8);
         }
 
         void falharComConexao() {
@@ -254,6 +252,7 @@ class ValkeyCacheDeBlocosTest {
             return CompletableFuture.completedFuture(1L);
         }
 
+        @Override
         public CompletableFuture<?> set(byte[] chave, byte[] valor, long ttlMilissegundos) {
             sets.incrementAndGet();
             ttls.add(ttlMilissegundos);

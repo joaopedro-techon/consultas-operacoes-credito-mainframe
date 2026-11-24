@@ -40,7 +40,7 @@ class ContextoRequisicaoFilterTest {
         filtro.doFilter(consulta("sistema-custodia"), new MockHttpServletResponse(), cadeia);
 
         assertThat(duranteARequisicao).containsEntry("consumidor", "sistema-custodia")
-                .containsEntry("rota", "visao_consolidada")
+                .containsEntry("rota", "fonte_primaria")
                 .containsEntry("tipo_consulta", "OPERACAO")
                 .containsKey("correlation_id");
         assertThat(MDC.getCopyOfContextMap()).isEqualTo(Map.of("traceId", "abc123", "spanId", "def456"));
@@ -68,7 +68,7 @@ class ContextoRequisicaoFilterTest {
     }
 
     private static MockHttpServletRequest consulta(String consumidor) {
-        var request = new MockHttpServletRequest("GET", "/v1/operacoes-credito");
+        var request = new MockHttpServletRequest("GET", "/v1/operacoes-credito/fonte-primaria");
         request.addHeader("x-consumidor", consumidor);
         request.addHeader("x-tipo-consulta", "OPERACAO");
         request.addParameter("id_operacao", "1");

@@ -40,7 +40,7 @@ public final class MetricasDeCustodia {
     private final MeterRegistry registry;
     private final String rota;
 
-    /** @param rota valor da tag {@code rota} ({@code visao_consolidada} ou {@code fonte_primaria}) */
+    /** @param rota valor da tag {@code rota} (sempre {@code fonte_primaria} neste serviço) */
     public MetricasDeCustodia(MeterRegistry registry, String rota) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.rota = Objects.requireNonNull(rota, "rota");

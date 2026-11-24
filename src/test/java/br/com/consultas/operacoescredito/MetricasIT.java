@@ -20,10 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class MetricasIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final RestTestClient client;
@@ -40,7 +40,7 @@ class MetricasIT {
         consultarOperacao(consumidor, "100000001", null);
 
         var metrica = metrica("http.server.requests", "consumidor:" + consumidor, "tipo_consulta:OPERACAO",
-                "rota:visao_consolidada", "status:200", "uri:" + ROTA);
+                "rota:fonte_primaria", "status:200", "uri:" + ROTA);
         assertThat(contagem(metrica)).isEqualTo(1.0);
     }
 
@@ -56,7 +56,7 @@ class MetricasIT {
         assertThat(contagemDeBlocos(consumidor, "parcelas")).isEqualTo(1.0);
         assertThat(contagemDeBlocos(consumidor, "saldo")).isEqualTo(2.0);
         assertThat(contagem(metrica("consultas.blocos", "consumidor:" + consumidor, "bloco:saldo",
-                "tipo_consulta:OPERACAO", "rota:visao_consolidada", "status:200"))).isEqualTo(2.0);
+                "tipo_consulta:OPERACAO", "rota:fonte_primaria", "status:200"))).isEqualTo(2.0);
     }
 
     @Test
@@ -131,13 +131,13 @@ class MetricasIT {
     }
 
     @Test
-    void chamadaAoDynamoDbEMedidaComoDependencia() {
+    void chamadaAoMainframeEMedidaComoDependencia() {
         var consumidor = novoConsumidor();
-        var antes = contagemOuZero("consultas.dependencia", "dependencia:dynamodb", "operacao:BatchGetItem");
+        var antes = contagemOuZero("consultas.dependencia", "dependencia:fonte_primaria", "operacao:operacao");
 
         consultarOperacao(consumidor, "100000001", null);
 
-        assertThat(contagemOuZero("consultas.dependencia", "dependencia:dynamodb", "operacao:BatchGetItem"))
+        assertThat(contagemOuZero("consultas.dependencia", "dependencia:fonte_primaria", "operacao:operacao"))
                 .isGreaterThan(antes);
     }
 

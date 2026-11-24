@@ -1,6 +1,5 @@
 package br.com.consultas.operacoescredito.adapters.out.cache;
 
-import br.com.consultas.operacoescredito.domain.Bloco;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -14,21 +13,21 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 class CachePropertiesTest {
 
     @Test
-    void ttlPositivoEAceito() {
-        assertThat(propriedades(Duration.ofMinutes(5)).ttl()).isEqualTo(Duration.ofMinutes(5));
+    void ttlDeCustodiaPositivoEAceito() {
+        assertThat(propriedades(Duration.ofHours(24)).ttlCustodia()).isEqualTo(Duration.ofHours(24));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"PT0S", "-PT1S"})
-    void ttlZeroOuNegativoERejeitado(String ttl) {
+    void ttlDeCustodiaZeroOuNegativoERejeitado(String ttl) {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> propriedades(Duration.parse(ttl)))
-                .withMessageContaining("consultas.cache.ttl");
+                .withMessageContaining("consultas.cache.ttl-custodia");
     }
 
     @Test
-    void padroesLimitamComandosEConsultasGrandes() {
-        var padrao = propriedades(Duration.ofMinutes(5));
+    void padroesLimitamComandosEGravacoesGrandes() {
+        var padrao = propriedades(Duration.ofHours(24));
 
         assertThat(padrao.chavesPorComando()).isEqualTo(100);
         assertThat(padrao.maxChavesPorConsulta()).isEqualTo(500);
@@ -38,25 +37,25 @@ class CachePropertiesTest {
 
     @Test
     void limitesMenoresQueUmSaoRejeitados() {
-        var ttl = Duration.ofMinutes(5);
         var prazo = Duration.ofMillis(20);
-        assertThatIllegalArgumentException().isThrownBy(() -> new CacheProperties(true, ttl, 0, 500, prazo, 32, Duration.ofHours(24)))
+        var ttl = Duration.ofHours(24);
+        assertThatIllegalArgumentException().isThrownBy(() -> new CacheProperties(true, 0, 500, prazo, 32, ttl))
                 .withMessageContaining("chaves-por-comando");
-        assertThatIllegalArgumentException().isThrownBy(() -> new CacheProperties(true, ttl, 100, 0, prazo, 32, Duration.ofHours(24)))
+        assertThatIllegalArgumentException().isThrownBy(() -> new CacheProperties(true, 100, 0, prazo, 32, ttl))
                 .withMessageContaining("max-chaves-por-consulta");
-        assertThatIllegalArgumentException().isThrownBy(() -> new CacheProperties(true, ttl, 100, 500, prazo, 0, Duration.ofHours(24)))
+        assertThatIllegalArgumentException().isThrownBy(() -> new CacheProperties(true, 100, 500, prazo, 0, ttl))
                 .withMessageContaining("max-gravacoes-simultaneas");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new CacheProperties(true, ttl, 100, 500, Duration.ofMillis(-1), 32, Duration.ofHours(24)))
+                .isThrownBy(() -> new CacheProperties(true, 100, 500, Duration.ofMillis(-1), 32, ttl))
                 .withMessageContaining("prazo-minimo-restante");
     }
 
     @Test
-    void chaveUsaIdDaOperacaoENomeCanonicoDoBloco() {
-        assertThat(new ChaveDeBloco(100000001L, Bloco.CONTROLES_IOF).valor()).isEqualTo("op:100000001:controles_iof");
+    void chaveDaCustodiaEhContratoComAVisaoConsolidada() {
+        assertThat(CacheDeCustodia.chave(100000001L)).isEqualTo("custodia:100000001");
     }
 
-    static CacheProperties propriedades(Duration ttl) {
-        return new CacheProperties(true, ttl, 100, 500, Duration.ofMillis(20), 32, Duration.ofHours(24));
+    static CacheProperties propriedades(Duration ttlCustodia) {
+        return new CacheProperties(true, 100, 500, Duration.ofMillis(20), 32, ttlCustodia);
     }
 }

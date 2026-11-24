@@ -2,7 +2,6 @@ package br.com.consultas.operacoescredito.adapters.in.web;
 
 import br.com.consultas.operacoescredito.application.port.in.Consumo;
 import br.com.consultas.operacoescredito.application.port.in.RegistrarConsumoUseCase;
-import br.com.consultas.operacoescredito.config.observabilidade.CacheDaRequisicao;
 import br.com.consultas.operacoescredito.domain.Bloco;
 import io.micrometer.tracing.Tracer;
 import jakarta.servlet.http.HttpServletRequest;
@@ -59,14 +58,14 @@ class RegistroDeConsumoHttp {
     }
 
     void registrar(HttpServletRequest request, HttpServletResponse response, Instant inicio, long duracaoMs,
-                   String correlationId, CacheDaRequisicao.Contagem cache) {
+                   String correlationId) {
         try {
             registrarConsumo.getObject().registrar(new Consumo(
                     inicio,
                     correlationId,
                     traceId(),
                     RequisicaoDeConsulta.consumidor(request),
-                    RequisicaoDeConsulta.rota(request),
+                    RequisicaoDeConsulta.rota(),
                     RequisicaoDeConsulta.tipoConsulta(request),
                     idOperacao(request.getParameter(ParametrosConsulta.ID_OPERACAO)),
                     informado(request.getParameter(ParametrosConsulta.CPF_CNPJ)),
@@ -77,8 +76,9 @@ class RegistroDeConsumoHttp {
                     limite(request.getParameter(ParametrosConsulta.LIMITE_OPERACOES)),
                     quantidade(request),
                     blocosIndisponiveis(response),
-                    cache.hits(),
-                    cache.misses(),
+                    // Sem cache de blocos neste serviço: os mapas do schema vêm sempre vazios
+                    ContextoRequisicaoFilter.SEM_CACHE_DE_BLOCOS,
+                    ContextoRequisicaoFilter.SEM_CACHE_DE_BLOCOS,
                     response.getStatus(),
                     codigoErro(response.getStatus()),
                     duracaoMs));

@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * Proteção própria da fonte primária, isolada da visão consolidada e separada por rota (ADR-0014):
+ * Proteção própria da fonte primária, separada por rota (ADR-0014):
  * <ul>
  *     <li>circuit breaker e retry por custódia × bloco (ou lista): {@code fontePrimaria-<CUSTODIA>-<rota>},
  *     criados na primeira chamada a partir da configuração base {@value #NOME} do {@code application.yml}. Uma

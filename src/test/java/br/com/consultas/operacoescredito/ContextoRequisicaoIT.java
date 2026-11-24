@@ -20,10 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(VisaoConsolidadaContainers.class)
+@Import(FontePrimariaContainers.class)
 class ContextoRequisicaoIT {
 
-    private static final String ROTA = "/v1/operacoes-credito";
+    private static final String ROTA = "/v1/operacoes-credito/fonte-primaria";
     private static final String HEADER_CORRELATION_ID = "x-correlationid";
 
     private final RestTestClient client;
