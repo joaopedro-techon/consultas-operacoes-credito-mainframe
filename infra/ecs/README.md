@@ -21,6 +21,20 @@ Pontos de projeto:
 - Sistema de arquivos da task somente leitura; `/tmp` (Tomcat, hsperfdata) fica num volume efêmero.
 - `stopTimeout` 45 s > desligamento gracioso (30 s) > `deregistration_delay` (30 s) > maior prazo (6 s).
 
+## State de antes da separação
+
+Em produção, esses recursos já existem, criados pelo `infra/ecs` de `consultas-operacoes-credito` e no state
+dele. **Não rode `apply` aqui com o state vazio**: o Terraform tentaria criar de novo o serviço, o target group, a
+regra e o log group. Também não aponte este módulo para a mesma chave de state do outro repositório, porque
+cada apply destruiria o que só o outro declara.
+
+O state deste módulo fica numa chave própria, com os recursos `["fonte-primaria"]` movidos do state de lá
+(`state pull` → `state mv` → `state push`), e lá eles saem com `terraform state rm`. O passo a passo, o que
+conferir no `plan` e o rollback estão em [`docs/runbook-cutover.md`](../../docs/runbook-cutover.md).
+
+O módulo não declara bloco `backend`: sem um `backend "s3" {}` no diretório, o state é local e o
+`-backend-config=backend.hcl` abaixo não tem efeito (veja o runbook, seção 2.1).
+
 ## Fora do escopo (pré-requisitos)
 
 Cluster ECS, VPC/subnets, ALB e listener HTTPS, security groups (tasks aceitando 8080 vindo do ALB), roles IAM (execução: ECR, logs e segredos; aplicação: SQS `SendMessage`), ElastiCache, fila SQS e Collector OTel. O módulo recebe tudo por variável.
