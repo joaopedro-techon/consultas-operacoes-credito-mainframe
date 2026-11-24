@@ -1,5 +1,5 @@
 // Partes comuns dos cenários de carga: massa local, montagem dos cenários e das requisições.
-// Massa: localstack/massa/*/indices.env (operações 100000001..100000007 e 100000101..100000114).
+// Massa: stubs do gateway em wiremock/mappings (operações 100000001..100000007 e 100000101..100000114).
 import http from 'k6/http';
 import { check } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
