@@ -2,6 +2,7 @@ package br.com.consultas.operacoescredito;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -21,6 +22,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Testes de caixa-preta da consulta OPERACAO na fonte primária (gateway do mainframe no WireMock).
- * O contrato é o mesmo da visão consolidada: as duas rotas devem devolver o mesmo JSON.
+ * O contrato é o mesmo da visão consolidada: a rota devolve, byte a byte, o JSON de {@link RespostasEsperadas}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
@@ -37,7 +39,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({VisaoConsolidadaContainers.class, FontePrimariaContainers.class})
 class FontePrimariaIT {
 
-    private static final String ROTA_VISAO_CONSOLIDADA = "/v1/operacoes-credito";
     private static final String ROTA_FONTE_PRIMARIA = "/v1/operacoes-credito/fonte-primaria";
     private static final String HEADER_INDISPONIVEIS = "x-blocos-indisponiveis";
     private static final String TODOS_OS_BLOCOS =
@@ -58,32 +59,41 @@ class FontePrimariaIT {
     }
 
     @Test
-    void blocosPadraoVemDaFontePrimariaComOMesmoJsonDaVisaoConsolidada() {
-        var fontePrimaria = corpo(ROTA_FONTE_PRIMARIA, "100000001", "");
+    void blocosPadraoVemDaFontePrimariaComOJsonDoContrato() {
+        var fontePrimaria = resposta(ROTA_FONTE_PRIMARIA, "100000001", "");
 
-        assertThat(fontePrimaria).isEqualTo(corpo(ROTA_VISAO_CONSOLIDADA, "100000001", ""));
+        assertThat(RespostasEsperadas.recebido(fontePrimaria.getResponseBodyContent()))
+                .isEqualTo(RespostasEsperadas.corpo("operacao/padrao-100000001"));
     }
 
     @ParameterizedTest(name = "id_operacao={0}")
-    @ValueSource(strings = {"100000001", "100000002", "100000003", "100000004", "100000005", "100000006", "100000007"})
-    void todosOsBlocosDaMassaVemDaFontePrimariaComOMesmoJsonEHeaderDaVisaoConsolidada(String idOperacao) {
+    @CsvSource(delimiter = '|', nullValues = "-", textBlock = """
+            100000001 | -
+            100000002 | -
+            100000003 | plano,saldo
+            100000004 | -
+            100000005 | -
+            100000006 | -
+            100000007 | -
+            """)
+    void todosOsBlocosDaMassaVemDaFontePrimariaComOJsonEHeaderDoContrato(String idOperacao, String indisponiveis) {
         var fontePrimaria = resposta(ROTA_FONTE_PRIMARIA, idOperacao, TODOS_OS_BLOCOS);
-        var visaoConsolidada = resposta(ROTA_VISAO_CONSOLIDADA, idOperacao, TODOS_OS_BLOCOS);
 
-        assertThat(fontePrimaria.getResponseBody()).isEqualTo(visaoConsolidada.getResponseBody());
+        assertThat(RespostasEsperadas.recebido(fontePrimaria.getResponseBodyContent()))
+                .isEqualTo(RespostasEsperadas.corpo("operacao/todos-os-blocos-" + idOperacao));
         assertThat(fontePrimaria.getResponseHeaders().get(HEADER_INDISPONIVEIS))
-                .isEqualTo(visaoConsolidada.getResponseHeaders().get(HEADER_INDISPONIVEIS));
+                .isEqualTo(indisponiveis == null ? null : List.of(indisponiveis));
     }
 
     @Test
-    void selecaoDeCamposNaFontePrimariaDevolveOMesmoJsonDaVisaoConsolidada() {
+    void selecaoDeCamposNaFontePrimariaDevolveOJsonDoContrato() {
         var uri = "?id_operacao=100000004&expand=parcelas,saldo"
                 + "&fields=operacao.situacao_operacao_credito,parcelas.situacao_parcela,saldo.saldo_devedor_operacao";
 
         var fontePrimaria = corpoDaUri(ROTA_FONTE_PRIMARIA + uri);
 
         assertThat(fontePrimaria).contains("situacao_parcela").doesNotContain("data_vencimento_parcela");
-        assertThat(fontePrimaria).isEqualTo(corpoDaUri(ROTA_VISAO_CONSOLIDADA + uri));
+        assertThat(fontePrimaria).isEqualTo(RespostasEsperadas.corpo("operacao/selecao-de-campos"));
     }
 
     @Test
@@ -274,16 +284,12 @@ class FontePrimariaIT {
     }
 
     private String corpoDaUri(String uri) {
-        return client.get().uri(uri)
+        var resultado = client.get().uri(uri)
                 .header("x-tipo-consulta", "OPERACAO")
                 .exchange()
                 .expectStatus().isOk()
-                .returnResult(String.class)
-                .getResponseBody();
-    }
-
-    private String corpo(String rota, String idOperacao, String expand) {
-        return resposta(rota, idOperacao, expand).getResponseBody();
+                .returnResult(String.class);
+        return RespostasEsperadas.recebido(resultado.getResponseBodyContent());
     }
 
     private EntityExchangeResult<String> resposta(String rota, String idOperacao, String expand) {
