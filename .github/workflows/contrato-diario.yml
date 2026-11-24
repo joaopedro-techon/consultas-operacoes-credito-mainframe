@@ -1,0 +1,99 @@
+name: Contrato diário
+
+# Verificação diária do contrato HTTP contra a main de consultas-operacoes-credito (ADR-0017): pega mudanças feitas
+# lá sem nenhum PR aqui. Divergiu: abre uma issue (ou atualiza a que já está aberta) com o diff e os testes que
+# falharam; voltou a passar: fecha a issue.
+on:
+  schedule:
+    - cron: "17 9 * * *" # 06:17 em Brasília
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: contrato-diario
+  cancel-in-progress: false
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      conforme: ${{ steps.download.outcome == 'success' && steps.testes.outcome == 'success' }}
+      relatorio: ${{ steps.relatorio.outputs.relatorio }}
+    steps:
+      # Actions fixadas por SHA do commit (a tag pode ser movida); a versão fica no comentário
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Contrato da visão consolidada
+        id: download
+        continue-on-error: true
+        run: ./scripts/baixar-contrato.sh target/contrato
+      # Só os testes de contrato: o catálogo e o validador (Contrato*Test) e as respostas reais da rota, inclusive os
+      # erros provocados pelos testes de resiliência (ContratoOpenApiIT, ResilienciaFontePrimariaIT,
+      # RateLimiterFontePrimariaIT)
+      - name: Testes de contrato
+        id: testes
+        if: steps.download.outcome == 'success'
+        continue-on-error: true
+        run: >-
+          ./mvnw -B verify -Dcontrato.dir=target/contrato
+          -Dtest='Contrato*Test'
+          -Dit.test='ContratoOpenApiIT,ResilienciaFontePrimariaIT,RateLimiterFontePrimariaIT'
+          -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Relatório da divergência
+        id: relatorio
+        if: steps.download.outcome != 'success' || steps.testes.outcome != 'success'
+        env:
+          EXECUCAO: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          ./scripts/relatorio-contrato.sh target/contrato "$EXECUCAO" > relatorio-contrato.md
+          cat relatorio-contrato.md
+          delimitador="RELATORIO_$(openssl rand -hex 16)"
+          {
+            echo "relatorio<<$delimitador"
+            cat relatorio-contrato.md
+            echo "$delimitador"
+          } >> "$GITHUB_OUTPUT"
+
+  # Job separado, sem checkout: só a permissão de issues
+  issue:
+    needs: verificar
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TITULO: Contrato divergente de consultas-operacoes-credito
+      CONFORME: ${{ needs.verificar.outputs.conforme }}
+      RELATORIO: ${{ needs.verificar.outputs.relatorio }}
+      EXECUCAO: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Abrir, atualizar ou fechar a issue de divergência
+        run: |
+          # Uma issue só: a aberta com o mesmo título (lista direta, sem depender do índice da busca)
+          numero=$(gh issue list --state open --limit 500 --json number,title \
+            --jq '[.[] | select(.title == $ENV.TITULO)][0].number // empty')
+          if [[ "$CONFORME" == "true" ]]; then
+            if [[ -n "$numero" ]]; then
+              gh issue comment "$numero" --body "Contrato conforme de novo em $EXECUCAO."
+              gh issue close "$numero"
+            fi
+            echo "Contrato conforme"
+            exit 0
+          fi
+          printf '%s\n' "$RELATORIO" > corpo.md
+          if [[ -n "$numero" ]]; then
+            gh issue edit "$numero" --body-file corpo.md
+            echo "Issue #$numero atualizada"
+          else
+            gh issue create --title "$TITULO" --body-file corpo.md
+          fi
+          echo "::error::Contrato divergente de consultas-operacoes-credito; veja a issue"
+          exit 1
