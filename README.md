@@ -1,39 +1,43 @@
-# consultas-operacoes-credito
+# consultas-operacoes-credito-mainframe
 
-API REST, somente leitura, de consulta de operações de crédito da Custódia de Ativos PF.
+API REST, somente leitura, de consulta de operações de crédito da Custódia de Ativos PF direto na **fonte
+primária** (gateway do mainframe). A visão consolidada (DynamoDB, com cache de blocos) roda em outro serviço,
+do repositório `consultas-operacoes-credito` (ADR-0017); o ALB separa os dois pelo caminho.
 Descrição completa em `docs/prompt_detalhes_2.md`; vocabulário em `GLOSSARY.md`; decisões em `docs/adr/`.
 
-**Versão 1.3.0** — consultas `OPERACAO`, `CLIENTE` e `CONTA` na visão consolidada (DynamoDB, com cache) e na
-fonte primária, com `expand`, `fields` e `filter`, e um evento de consumo por requisição publicado no SQS.
+**Versão 2.0.0** — consultas `OPERACAO`, `CLIENTE` e `CONTA` na fonte primária, com `expand`, `fields` e
+`filter`, cache de custódia no Valkey e um evento de consumo por requisição publicado no SQS.
 
 | Versão | Mudança |
 | --- | --- |
-| 1.3.0 | Correções da revisão: parâmetro repetido e `conta` com mais de 20 dígitos viram 400; circuitos não contam falhas causadas pela própria API (prazo, pool, 4xx); máscara de dados pessoais nos spans; cache em comandos pequenos; ADRs 0009–0011 |
+| 2.0.0 | **Quebra:** repositório próprio da fonte primária (ADR-0017). Sai a rota da visão consolidada (`GET /v1/operacoes-credito` agora é 404), o DynamoDB, o cache de blocos, `consultas.rotas-ativas` e a métrica `consultas.cache`; artefato, imagem, `spring.application.name` e `service.name` passam a `consultas-operacoes-credito-mainframe`. As respostas de `/v1/operacoes-credito/fonte-primaria` não mudam |
+| 1.4.0 | Múltiplas custódias (SF, F5, OD, NSF), paginação do mainframe, resposta parcial por bloco, resiliência por custódia e bloco, dois serviços ECS com cota local; ADRs 0012–0016 |
+| 1.3.0 | Correções da revisão: parâmetro repetido e `conta` com mais de 20 dígitos viram 400; circuitos não contam falhas causadas pela própria API (prazo, pool, 4xx); máscara de dados pessoais nos spans; ADR-0009 |
 | 1.2.0 | Evento de consumo no SQS (best-effort, em lote, HMAC de CPF/CNPJ e conta); contrato em `docs/eventos/evento-consumo.md` |
 | 1.1.0 | `expand` com os 9 blocos (inclui `controles_iof`), `x-blocos-indisponiveis`, catálogo de campos, massa nova |
 | 1.0.0 | Esqueleto do projeto e consulta `OPERACAO` com os blocos `operacao` e `originacao` |
 
 ## Stack
 
-Java 25, Spring Boot 4.2 (Spring MVC com virtual threads), AWS SDK v2 síncrono, Maven (com wrapper).
+Java 25, Spring Boot 4.2 (Spring MVC com virtual threads), AWS SDK v2 síncrono (só SQS), Maven (com wrapper).
 Organização hexagonal em `br.com.consultas.operacoescredito`:
 
 | Pacote | Conteúdo |
 | --- | --- |
-| `domain` | `Bloco`, `TipoConsulta`, `CriterioConsulta`, `OperacaoConsultada`, o catálogo de campos em `domain.catalogo` e a seleção de campos em `domain.selecao` (sem framework) |
+| `domain` | `Bloco`, `TipoConsulta`, `CriterioConsulta`, `Custodia`, `OperacaoConsultada`, o catálogo de campos em `domain.catalogo`, a seleção de campos em `domain.selecao` e o filtro em `domain.filtro` (sem framework) |
 | `application` | Casos de uso `ConsultarOperacoesUseCase` e `RegistrarConsumoUseCase`, portas de saída `FonteDeOperacoes` e `PublicadorDeEventosDeConsumo` (sem framework) |
 | `adapters.in.web` | Controller, validação dos parâmetros, Problem Details, contexto da requisição e evento de consumo |
-| `adapters.out.dynamodb` | Visão consolidada (ADR-0001) |
-| `adapters.out.cache` | Cache por bloco da visão consolidada no Valkey (ADR-0002) |
+| `adapters.out.fonteprimaria` | Gateway do mainframe: trancode, descoberta de custódia, paginação e resiliência |
+| `adapters.out.cache` | Cache de custódia no Valkey (ADR-0012) |
 | `adapters.out.eventos` | Publicação do evento de consumo no SQS (ADR-0004) |
-| `config` | Ligação dos casos de uso às portas; leitura do catálogo de campos |
+| `config` | Ligação dos casos de uso às portas; leitura do catálogo de campos; observabilidade e resiliência |
 
 As regras de dependência são verificadas pelo ArchUnit (`ArquiteturaTest`).
 
-## Contrato disponível nesta versão
+## Contrato
 
 ```
-GET /v1/operacoes-credito?id_operacao=100000003&expand=parcelas,saldo,plano
+GET /v1/operacoes-credito/fonte-primaria?id_operacao=100000003&expand=parcelas,saldo,plano
 x-tipo-consulta: OPERACAO
 ```
 
@@ -44,20 +48,24 @@ x-blocos-indisponiveis: plano,saldo
 {"data": [{"operacao": {...}, "originacao": {...}, "parcelas": [...], "plano": null, "saldo": null}]}
 ```
 
-- `expand`: blocos separados por vírgula, com o nome canônico (o mesmo da chave no JSON e do sufixo da SK):
+O corpo é o mesmo contrato da visão consolidada (o mesmo JSON, byte a byte, para a mesma massa). Só a rota
+exata `/v1/operacoes-credito/fonte-primaria` existe: qualquer outro caminho, inclusive `/v1/operacoes-credito`,
+é 404 em Problem Details.
+
+- `expand`: blocos separados por vírgula, com o nome canônico (o mesmo da chave no JSON):
   `operacao`, `originacao`, `componentes`, `parcelas`, `amortizacoes`, `recebimentos`, `plano`, `saldo`,
   `controles_iof`. `operacao` e `originacao` vêm sempre; repetições e espaços em volta dos nomes são ignorados.
 - Cada parâmetro do contrato (`id_operacao`, `cpf_cnpj`, `conta`, `limite_operacoes`, `expand`, `fields`,
   `filter`) vai no máximo uma vez: listas vão separadas por vírgula no mesmo parâmetro. Repetido
   (`expand=parcelas&expand=saldo`, `filter=a&filter=b`) é 400, para que dois filtros não virem um "ou" sem aviso.
-- Só os blocos pedidos e fora do cache são lidos do DynamoDB (um `BatchGetItem` com uma chave por bloco).
-- Bloco pedido e ainda ausente na visão consolidada: chave com `null` e o bloco listado em
-  `x-blocos-indisponiveis` (ordem canônica). Blocos-lista vazios (`[]`) não são indisponíveis.
+- Bloco pedido que a fonte primária não tem para a operação (404 do gateway) ou que falhou enquanto os demais
+  responderam: chave com `null` e o bloco listado em `x-blocos-indisponiveis` (ordem canônica). Blocos-lista
+  vazios (`[]`) não são indisponíveis.
 - `fields`: `bloco.campo` separados por vírgula, com ponto também para campos aninhados
   (ex.: `fields=operacao.situacao_operacao_credito,saldo.saldo_parcelas.saldo_devedor`). Bloco sem campos
   listados volta completo; `id_operacao` volta sempre, em todo item de todo nível onde existe (`fields=operacao.id_operacao`
   reduz `operacao` a `{"id_operacao": ...}`); campo composto listado inteiro volta completo. A seleção é aplicada
-  pelo caso de uso ao que a fonte devolveu, então vale para qualquer rota e tipo de consulta.
+  pelo caso de uso ao que a fonte devolveu, então vale para qualquer tipo de consulta.
 - `filter`: RSQL avaliado em memória sobre o que a fonte devolveu, com seletor `<bloco>.<campo>` (caminho com
   ponto em campos aninhados) e comparação pelo tipo do catálogo. Operadores `==`, `!=`, `=lt=`/`<`, `=le=`/`<=`,
   `=gt=`/`>`, `=ge=`/`>=`, `=in=(a,b)`, `=out=(a,b)`; `;` é "e", `,` é "ou", parênteses agrupam. Ex.:
@@ -75,81 +83,20 @@ x-blocos-indisponiveis: plano,saldo
 | Situação | Status |
 | --- | --- |
 | Operação encontrada | 200 |
-| Algum bloco pedido ausente na visão consolidada | 200 + `x-blocos-indisponiveis` |
-| Operação inexistente | 404 (Problem Details) |
-| `x-tipo-consulta` ausente/inválido (o detalhe lista os valores válidos, sem ecoar o recebido), `id_operacao` ausente/não numérico/com mais de 18 dígitos, parâmetro incoerente com o tipo (`cpf_cnpj`, `conta` ou `limite_operacoes` em `OPERACAO`; `id_operacao` em `CLIENTE`/`CONTA`), parâmetro do contrato repetido | 400 (Problem Details) |
+| Algum bloco pedido ausente ou indisponível na fonte primária | 200 + `x-blocos-indisponiveis` |
+| Operação inexistente em todas as custódias | 404 (Problem Details) |
+| Caminho fora da rota (inclusive `/v1/operacoes-credito`) | 404 (Problem Details) |
+| `x-tipo-consulta` ausente/inválido (o detalhe lista os valores válidos, sem ecoar o recebido), `id_operacao` ausente/não numérico/com mais de 18 dígitos, parâmetro incoerente com o tipo (`cpf_cnpj`, `conta` ou `limite_operacoes` em `OPERACAO`; `id_operacao` em `CLIENTE`/`CONTA`), parâmetro do contrato repetido | 400 (Problem Details), sem chamar o gateway |
 | Bloco desconhecido no `expand` (inclusive maiúsculas ou item vazio) | 400 (Problem Details listando os blocos válidos) |
 | `fields` malformado, com bloco desconhecido, bloco fora do `expand` (sem expansão implícita) ou campo fora do catálogo | 400 (Problem Details listando blocos ou campos válidos) |
 | `CLIENTE`/`CONTA` sem operações | 200 com `{"data": []}` |
-| `cpf_cnpj` que não é CPF (11 dígitos) ou CNPJ (14 caracteres, alfanumérico em maiúsculas) com DV válido; `conta` com caractere não numérico ou mais de 20 dígitos (barrada antes de virar chave no DynamoDB); `limite_operacoes` fora de 1 a 500 | 400 (Problem Details) |
-| Prazo da requisição do tipo de consulta esgotado (DynamoDB lento) | 504 (Problem Details sugerindo `limite_operacoes`, menos blocos no `expand` e a consulta por `OPERACAO`) |
-| Falha do DynamoDB depois do retry do SDK, ou item fora do formato (atributo ausente, `texto_detalhe` corrompido) | 502 (Problem Details) |
-| Circuit breaker do DynamoDB aberto, bulkhead cheio (total ou de CLIENTE/CONTA), rate limiter interno sem permissão, pool de conexões esgotado, throttling do DynamoDB depois do retry ou `UnprocessedKeys` restantes após 3 leituras | 503 (Problem Details) + `Retry-After` em segundos |
-
-`CLIENTE` (`cpf_cnpj`) e `CONTA` (`conta`) devolvem as operações da mais recente para a mais antiga por data
-de contratação, até `limite_operacoes` (ausente: todas). A leitura segue o ADR-0001: `Query` no GSI esparso
-(`ScanIndexForward=false`, `Limit` = limite, paginada), que já traz o bloco `operacao`, e `BatchGetItem` de
-`originacao` + blocos pedidos em lotes de até 100 chaves, em paralelo (uma virtual thread por lote, com o MDC
-propagado, no máximo `consultas.dynamodb.max-lotes-simultaneos` = 4 lotes em andamento por consulta), relendo
-`UnprocessedKeys` com backoff. O primeiro lote que falhar derruba a consulta e interrompe os demais.
-
-### Resiliência da visão consolidada
-
-Proteção própria do DynamoDB (instâncias `dynamodb` e `dynamodb-cliente-conta` do Resilience4j, isoladas da
-fonte primária), em `ResilienciaDynamoDb`, programática (sem AOP). Valores em `resilience4j.*.instances` e
-`consultas.dynamodb.*` no `application.yml`.
-
-| Mecanismo | Regra | Resposta |
-| --- | --- | --- |
-| Prazo da requisição | O mesmo `PrazoDaRequisicao` da fonte primária (`consultas.prazo.*`, ADR-0006). Cada `Query`/`BatchGetItem` leva `apiCallTimeout` = menor entre `consultas.dynamodb.timeout-chamada` (1 s) e o que resta do prazo, então tentativas e backoff do SDK nunca passam dele; a espera pelos lotes paralelos e a releitura das `UnprocessedKeys` também param no prazo; sem prazo restante, a chamada nem sai | 504 com as sugestões |
-| Retry | **Só o do SDK** (modo `standard`: throttling, 5xx, falha de conexão; nunca 4xx): 2 tentativas extras, backoff exponencial com jitter de 10 ms até 50 ms, também no throttling. Cada tentativa tem teto `consultas.dynamodb.timeout-tentativa` (100 ms), para que uma tentativa presa deixe prazo para outra. Nenhum retry do Resilience4j no DynamoDB | 502 (falha) ou 504 (tempo) |
-| Circuit breaker `dynamodb` | Por chamada ao SDK, depois do retry dele: janela de 50, mínimo 20, abre com 50% de falhas, 5 s aberto, 5 no meio-aberto. Contam 5xx, falhas de conexão, timeouts com o tempo inteiro, throttling e `UnprocessedKeys` restantes. **Não contam** (ADR-0010): chamadas interrompidas pela própria aplicação (lote cancelado), timeouts encurtados pelo prazo da requisição (menos de 10 ms restantes), pool de conexões esgotado e 4xx que não são throttling (`ValidationException` → 502) | 503 + `Retry-After` (tempo aberto) |
-| Bulkhead `dynamodb-cliente-conta` | Só CLIENTE/CONTA: 40 consultas simultâneas, sem espera. Abaixo do total: saturar CLIENTE/CONTA não impede OPERACAO | 503 + `Retry-After: 1` |
-| Bulkhead `dynamodb` | Todas as consultas: 180 simultâneas, sem espera | 503 + `Retry-After: 1` |
-| Rate limiter `dynamodb` | 3000 consultas por segundo, sem fila | 503 + `Retry-After` (período do limite) |
-| Lotes por consulta | `consultas.dynamodb.max-lotes-simultaneos` (4) `BatchGetItem` em andamento por consulta CLIENTE/CONTA; os demais esperam vaga dentro do prazo | 504 se o prazo acabar |
-| Pool | Cliente HTTP do SDK (Apache HttpClient 5) com `consultas.dynamodb.pool.*`: 300 conexões, conexão em 100 ms, 20 ms de espera por conexão, 1 s de leitura, TTL 5 min, ociosa até 30 s. Dimensionado pelo pior caso dos bulkheads, **validado na subida**: `max-conexoes ≥ (dynamodb − dynamodb-cliente-conta) + dynamodb-cliente-conta × max-lotes-simultaneos` = (180 − 40) + 40 × 4 = 300 | 503 + `Retry-After: 1` se esgotar (sem contar no circuito) |
-
-Bulkheads e rate limiter valem por consulta (antes de qualquer I/O, inclusive o Valkey); o circuit breaker, por
-chamada ao DynamoDB. Falha do SDK depois do retry → 502; throttling depois do retry ou `UnprocessedKeys`
-restantes após 3 leituras → 503 com `Retry-After: 1`; item fora do formato → 502. Métricas
-`resilience4j.circuitbreaker.*`, `resilience4j.bulkhead.*` e `resilience4j.ratelimiter.*` com a tag `name`
-(`dynamodb`, `dynamodb-cliente-conta`).
-
-## Cache por bloco (Valkey)
-
-Os dados (blocos) só são cacheados na visão consolidada; a rota da fonte primária nunca lê nem grava blocos no
-cache (ADR-0002). As duas rotas compartilham o **cache de custódia** `custodia:{id_operacao}` (só o endereço da
-operação, TTL `consultas.cache.ttl-custodia`, 24 h, ADR-0012); na visão consolidada ele vem no mesmo `MGET` dos
-blocos.
-
-- Chave `op:{id_operacao}:{bloco}` (nome canônico do bloco); valor = `texto_detalhe` em GZIP exatamente como veio
-  do DynamoDB (sem recomprimir); TTL `consultas.cache.ttl` (default 5 min).
-- Por requisição, uma leitura de todas as chaves operação × bloco a ler da tabela base, em `MGET`s de até
-  `consultas.cache.chaves-por-comando` (100) chaves em pipeline; só os ausentes vão ao `BatchGetItem`, e os lidos
-  são gravados **fora da requisição** (virtual thread, `SET ... PX` de uma chave em rodadas de 100 em pipeline, no
-  máximo `max-gravacoes-simultaneas` = 32 gravações em andamento; sem vaga, descartada). Ex.: depois de
-  `expand=parcelas,amortizacoes`, uma chamada `expand=parcelas,saldo` só lê `saldo` no DynamoDB (ADR-0011).
-- Consulta com mais de `consultas.cache.max-chaves-por-consulta` (500) chaves, ou com menos de
-  `prazo-minimo-restante` (20 ms) do prazo da requisição, nem lê nem grava no cache (`resultado=ignorado`).
-- Premissa: Valkey standalone ou replication group, sem cluster mode. Só comandos de uma chave e `MGET` (que o
-  cliente de cluster do Lettuce divide por slot); nenhum script ou transação multi-chave (ADR-0011).
-- Vale para `OPERACAO`, `CLIENTE` e `CONTA`. A `Query` no GSI (a lista de operações do cliente/conta, que já traz o
-  bloco `operacao`) **não** é cacheada: operação nova aparece na hora. Bloco indisponível não é cacheado.
-- Fail-open: o Valkey é só otimização. Timeout curto do cliente (`spring.data.redis.timeout`, 10 ms; conexão em
-  `connect-timeout`, 20 ms, para que um host inalcançável custe pouco até o circuito abrir) e circuit breaker
-  próprio (`resilience4j.circuitbreaker.instances.valkey`); erro, lentidão ou circuito aberto = "nada em cache"
-  (`resultado=indisponivel`) e a consulta segue no DynamoDB com a mesma resposta. O Valkey não entra no
-  health/readiness.
-- Cliente Lettuce (Spring Data Redis) com uma conexão compartilhada e multiplexada; sem pool.
-- `consultas.cache.habilitado=false` desliga o cache (toda leitura vai ao DynamoDB).
+| `cpf_cnpj` que não é CPF (11 dígitos) ou CNPJ (14 caracteres, alfanumérico em maiúsculas) com DV válido; `conta` com caractere não numérico ou mais de 20 dígitos; `limite_operacoes` fora de 1 a 500 | 400 (Problem Details) |
+| Bloco `operacao` falhou, ou custódia indisponível na descoberta ou na lista de cliente/conta | 503 (Problem Details com `custodias_indisponiveis`) + `Retry-After` |
+| Prazo da requisição esgotado | 504 (Problem Details sugerindo `limite_operacoes`, menos blocos no `expand` e a consulta por `OPERACAO`) |
+| Cota do mainframe esgotada | 429 (Problem Details) + `Retry-After` |
+| Trancode fora do layout no bloco `operacao` | 502 (Problem Details) |
 
 ## Fonte primária
-
-`GET /v1/operacoes-credito/fonte-primaria` aceita os mesmos headers e parâmetros e devolve o mesmo corpo da
-visão consolidada; muda só a porta de saída que o caso de uso recebe (Strategy). Sem cache de dados (ADR-0002).
-Atende `OPERACAO`, `CLIENTE` e `CONTA`, com a mesma validação de entrada da visão consolidada (400 antes de
-qualquer chamada ao gateway).
 
 | Rota do gateway (trancode em texto) | Devolve |
 | --- | --- |
@@ -170,9 +117,9 @@ paginada (ADR-0016): a primeira página é pedida sem query param; as seguintes 
   operação (404), ela é esquecida e a descoberta é refeita uma vez (a operação pode migrar de custódia).
 - `CLIENTE`/`CONTA`: a lista do cliente ou da conta nas quatro custódias, todas as páginas → junção (operação
   repetida fica com a custódia de maior precedência) → ordenação da mais recente para a mais antiga por data de
-  contratação (no empate, maior `id_operacao` primeiro, como o `sk_gsi` da visão consolidada) →
-  `limite_operacoes` aplicado → fan-out de uma chamada por operação selecionada × bloco, cada operação na sua
-  custódia. Lista com 404 no gateway: nenhuma operação naquela custódia.
+  contratação (no empate, maior `id_operacao` primeiro) → `limite_operacoes` aplicado → fan-out de uma chamada
+  por operação selecionada × bloco, cada operação na sua custódia. Lista com 404 no gateway: nenhuma operação
+  naquela custódia.
 - Paginação (ADR-0016): no máximo 30 ocorrências por página, páginas lidas em sequência até a última ou até
   `consultas.fonte-primaria.paginacao.max-paginas` (20). Página que falha ou teto atingido: o bloco fica
   indisponível, nunca truncado (na lista de cliente/conta: 503).
@@ -180,8 +127,8 @@ paginada (ADR-0016): a primeira página é pedida sem query param; as seguintes 
   `ContextExecutorService`, sem features preview), com MDC, trace e correlationId propagados às threads filhas
   e no máximo `consultas.fonte-primaria.fan-out.max-chamadas-simultaneas` (default 16) chamadas em andamento
   por requisição; as demais esperam vaga (WARN se o prazo acabar esperando).
-- O bloco `operacao` ganha o campo `custodia` (`SF`, `F5`, `OD` ou `NSF`), preenchido pela aplicação nas duas
-  rotas; filtrável (`filter=custodia==NSF`) e selecionável (`fields`).
+- O bloco `operacao` ganha o campo `custodia` (`SF`, `F5`, `OD` ou `NSF`), preenchido pela aplicação;
+  filtrável (`filter=custodia==NSF`) e selecionável (`fields`).
 - Resposta parcial (ADR-0013): falha de um bloco que não é `operacao` (circuito daquela custódia × bloco aberto,
   5xx depois do retry, timeout de uma tentativa, bulkhead cheio, trancode fora do layout, página que falhou)
   deixa só aquele bloco indisponível (`null` + `x-blocos-indisponiveis`, 200) e não afeta os outros. 404 de um
@@ -197,9 +144,9 @@ paginada (ADR-0016): a primeira página é pedida sem query param; as seguintes 
 
 ### Resiliência da fonte primária
 
-Proteção própria do Resilience4j, isolada da visão consolidada e separada por rota (ADR-0014), aplicada a cada
-chamada ao gateway, de fora para dentro: retry → circuit breaker → rate limiter → bulkhead de CLIENTE/CONTA (só
-nessas consultas) → bulkhead da custódia. Circuito e retry existem por custódia × bloco (ou lista):
+Proteção do Resilience4j separada por rota (ADR-0014), aplicada a cada chamada ao gateway, de fora para dentro:
+retry → circuit breaker → rate limiter → bulkhead de CLIENTE/CONTA (só nessas consultas) → bulkhead da custódia.
+Circuito e retry existem por custódia × bloco (ou lista):
 `fontePrimaria-<CUSTODIA>-<bloco|lista_cliente|lista_conta>`, ex.: `fontePrimaria-F5-parcelas`, criados na primeira
 chamada a partir da base `resilience4j.*.instances.fontePrimaria`; uma instância declarada com o nome exato
 sobrescreve a base daquela rota. A classificação das falhas fica em `FalhasDoGateway` (ADR-0009).
@@ -217,14 +164,14 @@ Cada tentativa tem span e timer `consultas.dependencia` próprios, com a tag `cu
 `resilience4j.circuitbreaker.*`, `resilience4j.retry.calls`, `resilience4j.bulkhead.*` e
 `resilience4j.ratelimiter.*` com as tags `name` (ex.: `fontePrimaria-F5-parcelas`), `kind` e `state`, sem
 identificadores. A descoberta é medida por `consultas.custodia.descoberta{rota,custodia,resultado}`
-(`encontrada`, `nao_encontrada`, `indisponivel`, `cache`). Lentidão ou falha do mainframe não afeta a visão
-consolidada: pool, bulkheads, circuitos e rate limiter são só da fonte primária e, em produção, ficam em outro
-serviço ECS (`consultas.rotas-ativas`, ADR-0015).
+(`encontrada`, `nao_encontrada`, `indisponivel`, `cache`).
 
-Logs WARN (logger `resiliencia`) de todas as instâncias, inclusive DynamoDB, Valkey e SQS: toda tentativa de
+Logs WARN (logger `resiliencia`) de todas as instâncias, inclusive Valkey e SQS: toda tentativa de
 retry (instância, tentativa N de M, espera e motivo) e o retry esgotado; toda transição de circuit breaker, com
 as taxas de falha e de lentidão e os limiares; recusas (circuito aberto, bulkhead cheio, rate limiter sem
 permissão) amostradas a uma linha por instância a cada 5 s, com quantas foram suprimidas.
+
+### Trancode
 
 - Cada trancode é lido por um parser genérico dirigido por layouts YAML (validados na subida). Mudar o
   template = editar o YAML:
@@ -277,24 +224,47 @@ Diferenças de layout por custódia na massa local (de propósito, para exercita
 | `texto` | — | string sem os brancos das pontas |
 
 Campo todo em branco vira `null`; data ou data-hora só de zeros (`0000-00-00`, `00000000`) também, convenção do
-mainframe para "sem data" (ex.: `data_baixa_operacao` de operação ativa). Os layouts não têm sinal: o gerador de
-stubs (`localstack/gerar_trancode.py`) recusa número negativo e decimal com mais casas que o `formato`.
+mainframe para "sem data" (ex.: `data_baixa_operacao` de operação ativa). Os layouts não têm sinal.
+
+## Cache de custódia (Valkey)
+
+O cache guarda só **em qual custódia** cada operação foi encontrada, nunca dados da operação (ADR-0002,
+ADR-0012). A chave `custodia:{id_operacao}`, o valor (o código da custódia, ex.: `SF`) e o TTL
+(`consultas.cache.ttl-custodia`, 24 h) são **contrato com o serviço da visão consolidada**, que usa o mesmo
+Valkey (ADR-0017): mudar qualquer um dos três exige mudar os dois serviços.
+
+- `OPERACAO`: um `MGET` de uma chave antes da descoberta; custódia achada pula a descoberta. Valor fora do
+  formato conta como ausente. Custódia descoberta é gravada; custódia que não tem mais a operação é removida
+  (`DEL`) e a descoberta é refeita.
+- `CLIENTE`/`CONTA`: a custódia de cada operação da lista é gravada (até `max-chaves-por-consulta`, 500; acima,
+  nada é gravado), em `SET ... PX` de uma chave em rodadas de `chaves-por-comando` (100) em pipeline.
+- Gravações e remoções rodam **fora da requisição** (virtual thread), no máximo `max-gravacoes-simultaneas` (32)
+  em andamento; sem vaga, descartadas.
+- Com menos de `prazo-minimo-restante` (20 ms) do prazo da requisição, nem lê.
+- Premissa: Valkey standalone ou replication group, sem cluster mode. Só comandos de uma chave e `MGET`.
+- Fail-open: o Valkey é só otimização. Timeout curto do cliente (`spring.data.redis.timeout`, 10 ms; conexão em
+  `connect-timeout`, 20 ms, para que um host inalcançável custe pouco até o circuito abrir) e circuit breaker
+  próprio (`resilience4j.circuitbreaker.instances.valkey`); erro, lentidão ou circuito aberto = "não sei" e a
+  consulta faz a descoberta, com a mesma resposta. O Valkey não entra no health/readiness.
+- Cliente Lettuce (Spring Data Redis) com uma conexão compartilhada e multiplexada; sem pool.
+- `consultas.cache.habilitado=false` desliga o cache (toda consulta `OPERACAO` faz a descoberta).
 
 ## Evento de consumo (SQS)
 
-Cada requisição às rotas de consulta, com sucesso ou erro, gera um evento de consumo publicado na fila SQS
+Cada requisição à rota de consulta, com sucesso ou erro, gera um evento de consumo publicado na fila SQS
 `consultas-eventos-consumo` (ADR-0004, ADR-0008), para outro serviço levar a Firehose → S3 → Athena. Contrato
 (campos, códigos de erro, evolução por `versao_evento`) em [`docs/eventos/evento-consumo.md`](docs/eventos/evento-consumo.md).
 
-- JSON plano em `snake_case`: `versao_evento`, `timestamp`, `correlation_id`, `trace_id`, `consumidor`, `rota`,
-  `tipo_consulta`, `id_operacao`, `cpf_cnpj_hmac`, `conta_hmac`, `blocos_solicitados`, `campos_solicitados`,
-  `filtro`, `limite_operacoes`, `quantidade_operacoes_retornadas`, `blocos_indisponiveis`, `cache_hits` e
-  `cache_misses` por bloco, `status_http`, `codigo_erro`, `duracao_ms`.
+- JSON plano em `snake_case`: `versao_evento`, `timestamp`, `correlation_id`, `trace_id`, `consumidor`, `rota`
+  (sempre `fonte_primaria` neste serviço), `tipo_consulta`, `id_operacao`, `cpf_cnpj_hmac`, `conta_hmac`,
+  `blocos_solicitados`, `campos_solicitados`, `filtro`, `limite_operacoes`, `quantidade_operacoes_retornadas`,
+  `blocos_indisponiveis`, `cache_hits` e `cache_misses`, `status_http`, `codigo_erro`, `duracao_ms`.
+- `cache_hits` e `cache_misses` contam o cache de blocos, que só existe na visão consolidada: aqui vêm sempre
+  como objetos vazios, para o schema continuar o mesmo nos dois serviços.
 - CPF/CNPJ e conta só como HMAC-SHA256 (hex) com `consultas.eventos.segredo-hmac`, também dentro do `filtro`
   (com ou sem pontuação: `529.982.247-25` dá o mesmo HMAC de `52998224725`); nunca em claro. Blocos e campos
   malformados ficam fora do evento. `consumidor` é o mesmo valor normalizado de logs e métricas.
-- Montado no fim do `ContextoRequisicaoFilter` (`RegistroDeConsumoHttp`). Os hits e misses de cache da requisição
-  são contados no `CacheDaRequisicao`, aberto pela borda HTTP e propagado às threads filhas como o MDC.
+- Montado no fim do `ContextoRequisicaoFilter` (`RegistroDeConsumoHttp`).
 - **Best-effort e assíncrono**: a requisição só põe o evento numa fila em memória limitada
   (`consultas.eventos.fila.capacidade`, 10.000); uma virtual thread monta lotes de até 10 (ou o que houver 1 s depois
   do primeiro evento) e envia cada lote num `SendMessageBatch`, em outra virtual thread. A requisição nunca espera
@@ -321,8 +291,7 @@ estrutura (`objeto` ou `lista`) e os campos com nome, tipo e `anulavel` (ADR-000
 `saldo.saldo_parcelas`). Os blocos continuam trafegando como `Map`, com decimais em `BigDecimal`.
 
 O catálogo é validado na subida (um bloco por `Bloco`, `id_operacao` numérico em todo bloco, compostos com
-subcampos, nomes únicos) e valida o `fields` e valida e tipa o `filter`. Incluir ou remover campo = editar o YAML;
-o teste `CatalogoDeCamposMassaTest` garante que a massa local usa exatamente os campos e tipos do catálogo.
+subcampos, nomes únicos) e valida o `fields` e valida e tipa o `filter`. Incluir ou remover campo = editar o YAML.
 
 ## Contexto da requisição e logs
 
@@ -337,14 +306,13 @@ Um filtro (`ContextoRequisicaoFilter`) roda antes de qualquer processamento em t
   chaves são removidas (as do tracing, como `traceId`/`spanId`, ficam com quem as pôs). Todo Problem Details traz a
   propriedade `correlation_id`.
 - Rota, consumidor, tipo de consulta e blocos pedidos são lidos por uma única regra (`RequisicaoDeConsulta`) para
-  MDC, log de acesso, evento de consumo, prazo e métricas; só as rotas exatas `/v1/operacoes-credito` e
-  `/v1/operacoes-credito/fonte-primaria` geram evento e contam em `consultas.blocos`.
+  MDC, log de acesso, evento de consumo, prazo e métricas; só a rota exata `/v1/operacoes-credito/fonte-primaria`
+  gera evento e conta em `consultas.blocos`.
 - Logs em JSON (structured logging ECS do Spring Boot) por um `AsyncAppender` (`logback-spring.xml`).
   Perfil `human-logs` para texto legível em desenvolvimento.
 - Um log de acesso por requisição (logger `acesso`): `metodo`, `uri`, `blocos`, `status`, `duracao_ms`,
-  `cache_hits` e `cache_misses` por bloco (objeto `bloco → quantidade`, vazio na fonte primária ou com o cache
-  desligado), parâmetros informados (`id_operacao`, `cpf_cnpj`, `conta`, `limite_operacoes`, `fields`, `filter`)
-  e o MDC.
+  `cache_hits` e `cache_misses` (sempre objetos vazios, como no evento), parâmetros informados (`id_operacao`,
+  `cpf_cnpj`, `conta`, `limite_operacoes`, `fields`, `filter`) e o MDC.
 - CPF/CNPJ e conta saem sempre mascarados (`529******25`, `***********5874`) em todo log: campos com esses
   nomes, segmentos de rota `/clientes/<cpf_cnpj>` e `/contas/<conta>` (URLs do gateway do mainframe), pares
   `chave=valor`/RSQL/JSON e CPF/CNPJ soltos com DV válido (`MascaramentoLogCustomizer`).
@@ -356,34 +324,33 @@ Um filtro (`ContextoRequisicaoFilter`) roda antes de qualquer processamento em t
 Micrometer + OpenTelemetry (`spring-boot-starter-opentelemetry`): a aplicação exporta métricas
 (`OtlpMeterRegistry`) e traces (bridge Micrometer Tracing → OpenTelemetry SDK) por OTLP/HTTP para o
 OpenTelemetry Collector, que manda métricas ao Prometheus e traces ao Jaeger. Nada de fornecedor no código:
-trocar para Datadog é trocar o exporter em `observabilidade/otel-collector.yaml`.
+trocar para Datadog é trocar o exporter em `observabilidade/otel-collector.yaml`. O `service.name` é
+`consultas-operacoes-credito-mainframe` (o `spring.application.name`).
 
 | Métrica | Tags |
 | --- | --- |
-| `http.server.requests` (timer) | `consumidor`, `tipo_consulta` (`nenhum`/`invalido` quando ausente/inválido), `rota`, `status`, `uri` (template), `method`, `outcome`, `exception` |
+| `http.server.requests` (timer) | `consumidor`, `tipo_consulta` (`nenhum`/`invalido` quando ausente/inválido), `rota` (`fonte_primaria`), `status`, `uri` (`/v1/operacoes-credito/fonte-primaria`), `method`, `outcome`, `exception` |
 | `consultas.blocos` (contador, um incremento por bloco pedido) | `bloco`, `consumidor`, `tipo_consulta`, `rota`, `status` |
-| `consultas.dependencia` (timer, um por chamada externa) | `dependencia` (`dynamodb`, `fonte_primaria`, `valkey`, `sqs`), `operacao` (`BatchGetItem`, `Query`... no DynamoDB; o bloco, `lista_operacoes_cliente` ou `lista_operacoes_conta` na fonte primária; `MGET`/`SET` no Valkey; `SendMessageBatch` no SQS), `indice` (GSI ou `nenhum`, só DynamoDB) |
-| `consultas.cache` (contador, um incremento por bloco procurado no cache) | `bloco`, `resultado` (`hit`, `miss`; `indisponivel` com o Valkey fora, lento ou o circuito aberto; `ignorado` quando a consulta pula o cache por ter chaves demais ou pouco prazo). Taxa de acerto = `hit / (hit + miss)`; o evento de consumo continua só com hits e misses |
-| `resilience4j.circuitbreaker.*` (estado, chamadas) | `name` (`valkey`, `dynamodb`, `fontePrimaria`, `sqs`), `state`/`kind` |
-| `resilience4j.bulkhead.*`, `resilience4j.ratelimiter.*` | `name` (`dynamodb`, `dynamodb-cliente-conta`, `fontePrimaria`; bulkhead também `fontePrimaria-cliente-conta` e `sqs`) |
+| `consultas.dependencia` (timer, um por chamada externa) | `dependencia` (`fonte_primaria`, `valkey`, `sqs`), `operacao` (o bloco, `lista_operacoes_cliente` ou `lista_operacoes_conta` na fonte primária; `MGET`/`SET`/`DEL` no Valkey; `SendMessageBatch` no SQS), `custodia` (fonte primária) |
+| `consultas.custodia.descoberta`, `consultas.custodia.duplicada` | `rota`, `custodia`, `resultado` |
+| `resilience4j.circuitbreaker.*` (estado, chamadas) | `name` (`valkey`, `fontePrimaria-<CUSTODIA>-<bloco>`, `sqs`), `state`/`kind` |
+| `resilience4j.bulkhead.*`, `resilience4j.ratelimiter.*` | `name` (`fontePrimaria`, `fontePrimaria-<CUSTODIA>`, `fontePrimaria-cliente-conta`, `sqs`) |
 | `eventos.consumo.enviados` (contador; Prometheus `eventos_consumo_enviados_total`) | — |
 | `eventos.consumo.descartados` (contador; Prometheus `eventos_consumo_descartados_total`) | `motivo` (`fila_cheia`, `bulkhead_cheio`, `circuito_aberto`, `falha_envio`, `encerramento`) |
 | `eventos.consumo.fila` (gauge, eventos aguardando envio) | — |
-| `consultas.etapa` (timer, um por etapa interna) | `etapa` (`consulta_gsi`, `batch`, `lista_operacoes`, `fan_out`, `filtro`); `indice` em `consulta_gsi` |
+| `consultas.etapa` (timer, um por etapa interna) | `etapa` (`lista_operacoes`, `fan_out`, `filtro`) |
 
 - `x-consumidor` vira tag como veio (id da API key no gateway); fora de `[A-Za-z0-9._-]{1,64}` vira `invalido`.
   Bloco fora do catálogo não vira tag. `id_operacao`, CPF/CNPJ e conta nunca são tag de métrica.
 - Spans: um por requisição HTTP (com `consumidor`, `tipo_consulta`, `rota`, `correlation_id` e os
   identificadores da consulta), com filhos por etapa e por chamada externa. `traceparent` (W3C) recebido
   continua o trace e segue para o gateway da fonte primária.
-  - OPERACAO na visão consolidada: `valkey MGET`, `dynamodb BatchGetItem` (só com blocos fora do cache) e
-    `valkey SET` filho do span HTTP, mas fora da requisição (pode terminar depois da resposta).
-  - CLIENTE/CONTA: `consulta_gsi` (com os `dynamodb Query`) e `batch` (com os `dynamodb BatchGetItem` dos lotes).
-  - Fonte primária: `fan_out` (atributo `operacoes`) com um `fonte_primaria <bloco>` por operação × bloco
-    pedido; 404 (bloco inexistente) não é erro. Em `CLIENTE`/`CONTA`, antes dele, a etapa `lista_operacoes`
-    com a chamada `fonte_primaria lista_operacoes_cliente` (ou `_conta`).
+  - `fan_out` (atributo `operacoes`) com um `fonte_primaria <bloco>` por operação × bloco pedido; 404 (bloco
+    inexistente) não é erro. Em `CLIENTE`/`CONTA`, antes dele, a etapa `lista_operacoes` com a chamada
+    `fonte_primaria lista_operacoes_cliente` (ou `_conta`).
+  - `valkey MGET` do cache de custódia e, fora da requisição, `valkey SET`/`DEL`.
   - `filtro`, quando há `filter`.
-- Novos adapters (Valkey, SQS) e etapas usam `Observacoes.dependencia(...)` e `Observacoes.etapa(...)`
+- Novos adapters e etapas usam `Observacoes.dependencia(...)` e `Observacoes.etapa(...)`
   (`config.observabilidade`), que fixam nomes e tags. A camada de aplicação mede etapas pela porta
   `ObservadorDeEtapas`, sem depender de Micrometer.
 - CPF/CNPJ e conta saem mascarados em tudo o que o span leva de texto: nome, atributos, eventos (inclusive
@@ -392,7 +359,7 @@ trocar para Datadog é trocar o exporter em `observabilidade/otel-collector.yaml
   novo, como defesa em profundidade (processor `transform/mascaramento`).
 - Buckets de histograma nos prazos do requisito não funcional (`management.metrics.distribution.slo`).
 - A aplicação amostra 100%; o **tail sampling** do Collector guarda todo trace com erro, com status 5xx ou
-  lento (OPERACAO > 80 ms, CLIENTE/CONTA > 200 ms) e 10% do resto.
+  lento e 10% do resto.
 - `/actuator/metrics` exposto para inspeção.
 
 ## Subir o ambiente local
@@ -401,53 +368,38 @@ Pré-requisito: Docker.
 
 ```bash
 docker compose up -d --build --wait
-curl -H "x-tipo-consulta: OPERACAO" "http://localhost:8080/v1/operacoes-credito?id_operacao=100000001"
+curl -H "x-tipo-consulta: OPERACAO" "http://localhost:8080/v1/operacoes-credito/fonte-primaria?id_operacao=100000001"
 docker compose down -v
 ```
 
 O `docker-compose.yml` sobe:
 
-- **LocalStack Community `4.14.0`**, a última tag que roda sem auth token (ADR-0003). Uso exclusivo em
-  desenvolvimento local: a tag não recebe patches de segurança. Serviços `dynamodb` e `sqs`.
 - **WireMock `3.13.2`** (porta 8089), simulando o gateway do mainframe com os stubs de `wiremock/mappings`.
-- **Valkey `9.0.8-alpine`** (porta 6379), cache por bloco, sem persistência.
+- **Valkey `9.0.8-alpine`** (porta 6379), cache de custódia, sem persistência.
+- **RedisInsight** `redis/redisinsight:3.8.0` em http://localhost:5540, para ver o cache: no primeiro acesso,
+  aceite os termos; a conexão *valkey (cache local)* aparece pré-configurada, e cada chave
+  `custodia:{id_operacao}` mostra a custódia e o TTL restante.
+- **LocalStack Community `4.14.0`**, a última tag que roda sem auth token (ADR-0003). Uso exclusivo em
+  desenvolvimento local: a tag não recebe patches de segurança. Só o serviço `sqs`: o script
+  `localstack/init/ready.d/00-eventos-consumo.sh` cria a fila `consultas-eventos-consumo`; para ver os eventos:
+  `docker compose exec localstack awslocal sqs receive-message --queue-url
+  http://localhost:4566/000000000000/consultas-eventos-consumo --max-number-of-messages 10`.
 - **app**, construída pelo `Dockerfile`.
 - **OpenTelemetry Collector** `otel/opentelemetry-collector-contrib:0.165.0` (OTLP em `4317`/`4318`).
 - **Jaeger v2** `jaegertracing/jaeger:2.23.0`: traces em http://localhost:16686.
 - **Prometheus** `prom/prometheus:v3.16.0`: http://localhost:9090.
 - **Grafana** `grafana/grafana:13.3.1`: http://localhost:3000 (anônimo, somente leitura; `admin`/`admin`
   para editar). Datasources Prometheus e Jaeger e o dashboard *Consultas de Operações de Crédito*
-  (latência por tipo de consulta e rota, latência por dependência, erros, blocos mais pedidos, consumo
-  por consumidor) são provisionados de `observabilidade/grafana/`.
+  (latência por tipo de consulta, latência por dependência, erros, blocos mais pedidos, consumo
+  por consumidor, custódias, resiliência e cota) são provisionados de `observabilidade/grafana/`.
 
-O script `localstack/init/ready.d/00-eventos-consumo.sh` cria a fila SQS `consultas-eventos-consumo` dos eventos
-de consumo; para ver os eventos: `docker compose exec localstack awslocal sqs receive-message --queue-url
-http://localhost:4566/000000000000/consultas-eventos-consumo --max-number-of-messages 10`.
+### Massa local
 
-O script `localstack/init/ready.d/01-visao-consolidada.sh` cria a tabela `operacoes-credito`
-(PK `numero_operacao`, SK `custodia_expand`), os GSIs esparsos `gsi-cliente` e `gsi-conta`
-(SK `sk_gsi` = `<data_contratacao_operacao>#<numero_operacao>`, projeção `ALL`) e carrega a massa de
-`localstack/massa/<numero_operacao>/`: um diretório por custódia (`SF`, `F5`, `OD`, `NSF`) com um
-`<BLOCO>.json` por bloco, gravado em GZIP no `texto_detalhe` com a SK `<CUSTODIA>#EXPAND#<BLOCO>`, e
-`indices.env` com os atributos dos GSIs, que vão só no item `OPERACAO` de cada custódia (uma operação
-duplicada aparece duas vezes no GSI).
-
-Para ver a tabela no **NoSQL Workbench**: *Operation builder* → *Add connection* → *DynamoDB local*, host
-`localhost`, porta `4566`. O Workbench assina com a região `localhost`; o LocalStack do compose roda com
-`DYNAMODB_SHARE_DB=1` (um só DynamoDB para qualquer região), por isso a tabela criada em `sa-east-1` aparece.
-
-Para ver o **cache no Valkey**: **RedisInsight** `redis/redisinsight:3.8.0` em http://localhost:5540. No primeiro
-acesso, aceite os termos; a conexão *valkey (cache local)* aparece pré-configurada, com descompressão GZIP, então
-cada chave `op:{id_operacao}:{bloco}` mostra o JSON do bloco (escolha o formatador *JSON*) e o TTL restante.
-
-A massa é gerada por `localstack/gerar_massa.py` a partir de uma especificação curta por operação, para que
-os blocos fechem entre si (regras no cabeçalho do script: amortizações aplicadas juros antes do principal,
-saldo = principal + juros - amortizado, IOF dos componentes = soma dos controles de IOF etc.). Para incluir
-uma operação, acrescente uma entrada em `OPERACOES` (com `custodias`) e rode `python localstack/gerar_massa.py`.
-Ao final ele chama `localstack/gerar_trancode.py` (requer PyYAML), que codifica cada
-`<CUSTODIA>/<BLOCO>.json` com o layout da custódia (override, se houver, senão o base), paginado nas listas, e
-grava `wiremock/mappings/<id_operacao>.json`, além de `clientes.json` e `contas.json` com a lista de operações
-de cada cliente e conta em cada custódia (de `indices.env`): as duas fontes servem a mesma massa.
+Os stubs de `wiremock/mappings` são a massa: `<id_operacao>.json` com o trancode de cada bloco em cada custódia
+(paginado nas listas) e `clientes.json`/`contas.json` com a lista de operações de cada cliente e conta em cada
+custódia. Os mesmos stubs sobem no docker-compose e nos testes. Até a 1.4.0 eles eram gerados a partir da massa
+da visão consolidada; o gerador ficou no repositório `consultas-operacoes-credito` (ADR-0017), e aqui os stubs
+são versionados e editados direto.
 
 | `id_operacao` | Custódia | Situação | CPF/CNPJ | Conta | Cenário |
 | --- | --- | --- | --- | --- | --- |
@@ -462,15 +414,15 @@ de cada cliente e conta em cada custódia (de `indices.env`): as duas fontes ser
 
 O cliente 52998224725 tem três operações em duas contas (SF e F5); a conta 434115000065874 e a
 434115000077712 têm duas operações cada. O cliente 11222333000181 (e a conta 434115000055501) tem 14
-operações nas quatro custódias: com todos os blocos no `expand`, o `BatchGetItem` passa de 100 chaves e é
-dividido em lotes. Uma custódia em que o cliente ou a conta não tem operação não tem stub de lista (404).
+operações nas quatro custódias. Uma custódia em que o cliente ou a conta não tem operação não tem stub de
+lista (404).
 
-Para rodar a aplicação fora do Docker contra o LocalStack do compose:
+Para rodar a aplicação fora do Docker contra o compose:
 
 ```bash
-docker compose up -d --wait localstack
-CONSULTAS_DYNAMODB_ENDPOINT=http://localhost:4566 AWS_REGION=sa-east-1 \
-CONSULTAS_DYNAMODB_CREDENCIAIS_ACCESS_KEY_ID=test CONSULTAS_DYNAMODB_CREDENCIAIS_SECRET_ACCESS_KEY=test \
+docker compose up -d --wait wiremock valkey localstack
+AWS_REGION=sa-east-1 \
+CONSULTAS_FONTE_PRIMARIA_URL=http://localhost:8089 \
 CONSULTAS_EVENTOS_SQS_ENDPOINT=http://localhost:4566 \
 CONSULTAS_EVENTOS_SQS_URL_FILA=http://localhost:4566/000000000000/consultas-eventos-consumo \
 CONSULTAS_EVENTOS_SQS_CREDENCIAIS_ACCESS_KEY_ID=test CONSULTAS_EVENTOS_SQS_CREDENCIAIS_SECRET_ACCESS_KEY=test \
@@ -484,35 +436,23 @@ CONSULTAS_EVENTOS_SEGREDO_HMAC=segredo-local-somente-desenvolvimento \
 
 | Propriedade | Variável | Default |
 | --- | --- | --- |
-| `consultas.dynamodb.tabela` | `CONSULTAS_DYNAMODB_TABELA` | `operacoes-credito` |
-| `consultas.dynamodb.regiao` | `AWS_REGION` | `sa-east-1` |
-| `consultas.dynamodb.endpoint` | `CONSULTAS_DYNAMODB_ENDPOINT` | vazio (endpoint da AWS) |
-| `consultas.dynamodb.credenciais.*` | `CONSULTAS_DYNAMODB_CREDENCIAIS_ACCESS_KEY_ID` / `..._SECRET_ACCESS_KEY` | vazio (cadeia padrão do SDK) |
 | `consultas.cache.habilitado` | `CONSULTAS_CACHE_HABILITADO` | `true` |
-| `consultas.cache.ttl` | `CONSULTAS_CACHE_TTL` | `5m` |
+| `consultas.cache.ttl-custodia` | — | `24h` (contrato com a visão consolidada) |
 | `spring.data.redis.host` / `.port` (Valkey) | `CONSULTAS_VALKEY_HOST` / `CONSULTAS_VALKEY_PORTA` | `localhost` / `6379` |
 | `spring.data.redis.timeout` (comando no Valkey) | `CONSULTAS_VALKEY_TIMEOUT` | `10ms` |
 | `spring.data.redis.connect-timeout` | `CONSULTAS_VALKEY_CONNECT_TIMEOUT` | `20ms` |
 | `consultas.cache.chaves-por-comando` / `.max-chaves-por-consulta` / `.prazo-minimo-restante` / `.max-gravacoes-simultaneas` | `CONSULTAS_CACHE_MAX_CHAVES_POR_CONSULTA` (`max-chaves-por-consulta`) | `100` / `500` / `20ms` / `32` |
-| `consultas.dynamodb.timeout-chamada` | — | `1s` (teto de uma chamada ao SDK com as tentativas; numa requisição, limitado ao prazo restante) |
-| `consultas.dynamodb.timeout-tentativa` | `CONSULTAS_DYNAMODB_TIMEOUT_TENTATIVA` | `100ms` (teto de cada tentativa do SDK) |
-| `consultas.dynamodb.pool.*` | `CONSULTAS_DYNAMODB_MAX_CONEXOES` (`max-conexoes`) | `max-conexoes` 300 (validado contra os bulkheads na subida), `timeout-conexao` 100ms, `timeout-obter-conexao` 20ms, `timeout-resposta` 1s, `ttl` 5m, `max-ociosa` 30s |
-| `consultas.dynamodb.retry.*` | — | `tentativas-extras` 2, `backoff-base` 10ms, `backoff-maximo` 50ms (retry do SDK, modo standard) |
-| `resilience4j.circuitbreaker.instances.dynamodb.*` | — | janela `COUNT_BASED` de 50, mínimo 20 chamadas, 50% de falhas, 5s aberto, 5 chamadas no meio-aberto |
-| `resilience4j.bulkhead.instances.dynamodb.*` / `.dynamodb-cliente-conta.*` | — | `max-concurrent-calls` 180 / 40, `max-wait-duration` 0ms |
-| `consultas.dynamodb.max-lotes-simultaneos` | `CONSULTAS_DYNAMODB_MAX_LOTES_SIMULTANEOS` | `4` (lotes de `BatchGetItem` em andamento por consulta CLIENTE/CONTA) |
-| `resilience4j.ratelimiter.instances.dynamodb.*` | — | `limit-for-period` 3000 por `1s`, `timeout-duration` 0s |
 | `resilience4j.circuitbreaker.instances.valkey.*` | — | janela de 20 chamadas, mínimo 10, abre com 50% de falhas, 5 s aberto, 3 chamadas em meio-aberto |
 | `consultas.fonte-primaria.url` | `CONSULTAS_FONTE_PRIMARIA_URL` | `http://localhost:8089` |
 | `consultas.fonte-primaria.layouts` | — | `classpath:trancode/layouts/` |
-| `consultas.fonte-primaria.pool.*` | — | `max-conexoes` 50, `max-conexoes-por-rota` 50, `ttl` 5m, `keep-alive` 30s, `timeout-conexao` 50ms, `timeout-obter-conexao` 50ms, `timeout-resposta` 1s (todos limitados ao prazo restante) |
+| `consultas.fonte-primaria.cota.chamadas-por-segundo` / `.max-tasks` | `CONSULTAS_FONTE_PRIMARIA_COTA_CHAMADAS_POR_SEGUNDO` / `CONSULTAS_FONTE_PRIMARIA_COTA_MAX_TASKS` | `1500` / `3` (ADR-0015) |
+| `consultas.fonte-primaria.pool.*` | — | ver `application.yml` (pool de 240 conexões; timeouts limitados ao prazo restante) |
 | `consultas.fonte-primaria.fan-out.max-chamadas-simultaneas` | `CONSULTAS_FONTE_PRIMARIA_MAX_CHAMADAS_SIMULTANEAS` | `16` (teto de chamadas ao gateway em andamento por requisição; mínimo 1) |
-| `consultas.fonte-primaria.retry.prazo-minimo-restante` | — | `50ms` (só retenta se restar isto do prazo da requisição) |
-| `consultas.prazo.operacao` / `.cliente` / `.conta` | `CONSULTAS_PRAZO_OPERACAO` / `_CLIENTE` / `_CONTA` | `150ms` / `400ms` / `400ms` (prazo da requisição → 504) |
-| `resilience4j.circuitbreaker.instances.fontePrimaria.*` | — | janela `COUNT_BASED` de 50, mínimo 20 chamadas, 50% de falhas, 5s aberto, 16 chamadas no meio-aberto |
-| `resilience4j.bulkhead.instances.fontePrimaria.*` / `.fontePrimaria-cliente-conta.*` | — | `max-concurrent-calls` 50 / 40, `max-wait-duration` 10ms |
-| `resilience4j.ratelimiter.instances.fontePrimaria.*` | — | `limit-for-period` 2000 por `1s`, `timeout-duration` 0s |
-| `resilience4j.retry.instances.fontePrimaria.*` | — | `max-attempts` 3, `wait-duration` 10ms, backoff exponencial ×2, jitter 0.5 |
+| `consultas.fonte-primaria.paginacao.max-paginas` | — | `20` |
+| `consultas.fonte-primaria.retry.prazo-minimo-restante` | — | `600ms` (só retenta se restar isto do prazo da requisição) |
+| `consultas.prazo.fonte-primaria.operacao` / `.cliente` / `.conta` | — | `2500ms` / `6s` / `6s` (prazo da requisição → 504) |
+| `consultas.custodia.precedencia` | — | `NSF, SF, F5, OD` |
+| `resilience4j.*.instances.fontePrimaria*` | — | ver a tabela de resiliência acima |
 | `consultas.eventos.habilitado` | `CONSULTAS_EVENTOS_HABILITADO` | `true` |
 | `consultas.eventos.segredo-hmac` | `CONSULTAS_EVENTOS_SEGREDO_HMAC` | vazio (obrigatório com o evento ligado; em produção, de um cofre de segredos) |
 | `consultas.eventos.fila.capacidade` | `CONSULTAS_EVENTOS_CAPACIDADE_FILA` | `10000` |
@@ -527,6 +467,14 @@ CONSULTAS_EVENTOS_SEGREDO_HMAC=segredo-local-somente-desenvolvimento \
 | Endpoint OTLP (traces e métricas) | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` (só métricas; traces só com a variável) |
 | `management.opentelemetry.resource-attributes.deployment.environment.name` | `CONSULTAS_AMBIENTE` | `local` |
 
+## Implantação
+
+`infra/ecs` (Terraform) cria o serviço ECS Fargate `fonte-primaria`: task definition, target group
+(`least_outstanding_requests`), regra do ALB para `/v1/operacoes-credito/fonte-primaria*`, autoscaling por
+requisições e o `max_tasks` fixo que também vira `CONSULTAS_FONTE_PRIMARIA_COTA_MAX_TASKS`, com
+`maximumPercent=100` no deploy (ADR-0015). O serviço e a regra da visão consolidada, e o API Gateway, ficam no
+outro repositório. Dimensionamento em `docs/capacidade-ecs-fargate.md`; testes de carga em `carga/`.
+
 ## Testes
 
 ```bash
@@ -536,37 +484,35 @@ CONSULTAS_EVENTOS_SEGREDO_HMAC=segredo-local-somente-desenvolvimento \
 Requer JDK 25 e Docker. `verify` roda:
 
 - testes unitários e ArchUnit (Surefire);
-- testes HTTP de caixa-preta `*IT` (Failsafe), com a aplicação inteira e o LocalStack via Testcontainers,
-  usando a mesma imagem, o mesmo script de init e a mesma massa do docker-compose, e o WireMock com os
-  mesmos stubs de trancode (`FontePrimariaIT` e `FontePrimariaClienteContaIT` comparam as duas rotas para
-  cada operação, cliente e conta da massa; `FontePrimariaFanOutIT` registra massas próprias no WireMock para
-  teto de concorrência, falhas parciais e correlationId nas chamadas filhas; `ResilienciaFontePrimariaIT` e
-  `RateLimiterFontePrimariaIT` usam atrasos, falhas e cenários do WireMock para retry, prazo (504), circuit
-  breaker abrindo e voltando (inclusive com fan-out maior que as chamadas do meio-aberto), timeouts encurtados
-  pelo prazo fora do circuito, bulkheads total e de CLIENTE/CONTA e rate limiter (503); `FontePrimariaConfigTest`
-  mostra, contra um endereço não roteável, o timeout de conexão de 50 ms (conta no circuito) e o encurtado pelo prazo
-  (não conta); `TracesIT` derruba e atrasa o gateway nas listas de cliente e conta e confere que nem os spans
-  (eventos de exceção e status incluídos) nem os logs levam CPF/CNPJ ou conta; `IsolamentoFontePrimariaIT` mostra a visão
-  consolidada saudável com o mainframe degradado); `ResilienciaVisaoConsolidadaIT` põe o LocalStack atrás de um
-  Toxiproxy (`VisaoConsolidadaComToxiproxyContainers`, contexto próprio) e atrasa ou derruba o proxy para o 504 no
-  prazo de cada tipo de consulta, o circuit breaker abrindo (503 + `Retry-After`), o rate limiter (503) e o
-  isolamento do bulkhead de CLIENTE/CONTA em relação a OPERACAO. `DynamoDbConfigTest` conta, num servidor HTTP
-  local, as tentativas do retry do SDK (3 em 5xx e throttling, 1 em 4xx).
-  O cache fica desligado nos testes (`src/test/resources/application.properties`), exceto no `CacheIT`, que sobe
-  o Valkey atrás de um Toxiproxy (`CacheContainers`): altera itens no DynamoDB depois da primeira chamada para
-  saber de onde veio cada bloco, lê o Valkey direto pela porta do container e derruba ou atrasa o proxy para
-  verificar o fail-open e o circuit breaker.
+- testes HTTP de caixa-preta `*IT` (Failsafe), com a aplicação inteira e o WireMock via Testcontainers, com os
+  mesmos stubs de trancode do docker-compose:
+  - `FontePrimariaIT` e `FontePrimariaClienteContaIT` comparam, byte a byte, as respostas de cada operação,
+    cliente, conta e caso de validação da massa com as respostas de referência de
+    `src/test/resources/respostas-esperadas/` (capturadas da visão consolidada antes da separação: são o contrato);
+  - `FontePrimariaFanOutIT` registra massas próprias no WireMock para teto de concorrência, falhas parciais e
+    correlationId nas chamadas filhas;
+  - `ResilienciaFontePrimariaIT` e `RateLimiterFontePrimariaIT` usam atrasos, falhas e cenários do WireMock para
+    retry, prazo (504), circuit breaker abrindo e voltando (inclusive com fan-out maior que as chamadas do
+    meio-aberto), timeouts encurtados pelo prazo fora do circuito, bulkheads total e de CLIENTE/CONTA e rate
+    limiter (429); `FontePrimariaConfigTest` mostra, contra um endereço não roteável, o timeout de conexão de 50 ms
+    (conta no circuito) e o encurtado pelo prazo (não conta);
+  - `TracesIT` derruba e atrasa o gateway nas listas de cliente e conta e confere que nem os spans (eventos de
+    exceção e status incluídos) nem os logs levam CPF/CNPJ ou conta.
+- O cache fica desligado nos testes (`src/test/resources/application.properties`), exceto no `CacheIT`, que sobe
+  o Valkey atrás de um Toxiproxy (`CacheContainers`): confere chave, valor e TTL do contrato, lê e grava o
+  Valkey direto pela porta do container e derruba ou atrasa o proxy para verificar o fail-open e o circuit
+  breaker; e no `CacheValkeyInalcancavelIT`, com um host que não responde.
 - O evento de consumo fica desligado nos testes (`consultas.eventos.habilitado=false`), exceto no
-  `EventoDeConsumoIT` (`EventosDeConsumoContainers`), que lê a fila do LocalStack com o SDK e confere cada evento
-  (HMAC, nenhum dado em claro, hits/misses de cache com o Valkey, erros, `trace_id`) e sobe uma segunda instância
-  da aplicação para ver a fila em memória drenada no encerramento, e no `EventoDeConsumoSqsForaIT`, em que o SQS é
-  um socket que nunca responde: a consulta segue igual e rápida e os eventos são descartados e contados.
+  `EventoDeConsumoIT` (`SqsContainers` + `EventosDeConsumoContainers`), que lê a fila do LocalStack com o SDK e
+  confere cada evento (HMAC, nenhum dado em claro, erros, `trace_id`) e sobe uma segunda instância da aplicação
+  para ver a fila em memória drenada no encerramento, e no `EventoDeConsumoSqsForaIT`, em que o SQS é um socket
+  que nunca responde: a consulta segue igual e rápida e os eventos são descartados e contados.
 - Nos testes, os prazos por tipo de consulta são de 10 s e o circuito da fonte primária só abre com 1000
   chamadas (`src/test/resources/application.properties`), para que containers frios e falhas provocadas de
   propósito não afetem outros testes; os testes de resiliência usam contexto próprio com valores pequenos.
 
 O CI (`.github/workflows/ci.yml`, actions fixadas por SHA do commit) executa `./mvnw -B verify`, valida o
 docker-compose e o Collector, constrói a imagem Docker e, num job à parte, roda `terraform fmt -check` e
-`terraform init -backend=false` + `terraform validate` em `infra/api-gateway`. A imagem parte de bases Temurin
+`terraform init -backend=false` + `terraform validate` em `infra/ecs`. A imagem parte de bases Temurin
 fixadas por tag exata e digest, roda como o usuário numérico `10001` e termina o processo em `OutOfMemoryError`
 (`-XX:+ExitOnOutOfMemoryError`).
