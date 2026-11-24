@@ -32,8 +32,9 @@ O state deste módulo fica numa chave própria, com os recursos `["fonte-primari
 (`state pull` → `state mv` → `state push`), e lá eles saem com `terraform state rm`. O passo a passo, o que
 conferir no `plan` e o rollback estão em [`docs/runbook-cutover.md`](../../docs/runbook-cutover.md).
 
-O módulo não declara bloco `backend`: sem um `backend "s3" {}` no diretório, o state é local e o
-`-backend-config=backend.hcl` abaixo não tem efeito (veja o runbook, seção 2.1).
+O state fica em S3 (`backend "s3" {}` em `versions.tf`, lock nativo `use_lockfile`), na chave
+`consultas-operacoes-credito-mainframe/ecs/terraform.tfstate` (modelo em `backend.hcl.example`). A chave de
+`consultas-operacoes-credito` é `consultas-operacoes-credito/ecs/terraform.tfstate`, e as duas nunca podem ser a mesma.
 
 ## Fora do escopo (pré-requisitos)
 
@@ -44,7 +45,8 @@ Cluster ECS, VPC/subnets, ALB e listener HTTPS, security groups (tasks aceitando
 ```powershell
 cd infra/ecs
 Copy-Item terraform.tfvars.example terraform.tfvars   # git-ignored; ajuste ARNs, imagem e ambiente
-terraform init                                         # ou: terraform init -backend-config=backend.hcl
+Copy-Item backend.hcl.example backend.hcl             # git-ignored; ajuste o bucket (a chave já é a deste repositório)
+terraform init -backend-config=backend.hcl             # no cutover: a chave só recebe o state pelo runbook (state push)
 terraform plan -out tfplan
 terraform apply tfplan
 terraform output

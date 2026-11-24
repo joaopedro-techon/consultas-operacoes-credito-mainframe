@@ -157,23 +157,17 @@ O caminho correto: o state deste repositório fica numa chave **própria**, com 
 **movidos** para ela, e o state do outro repositório perde esses recursos com `terraform state rm`. Nada é
 recriado na AWS.
 
-**Backend.** Nenhum dos dois módulos declara um bloco `backend` (o `versions.tf` só tem o comentário):
-- sem um bloco `backend "s3" {}` no diretório, o state é local (`infra/ecs/terraform.tfstate`, ignorado pelo
-  git) e o `terraform init -backend-config=backend.hcl` do README não tem efeito;
-- use neste repositório o mesmo tipo de backend que o `infra/ecs` de `consultas-operacoes-credito` usa em
-  produção, com **outra chave**;
-- com S3: um bloco `terraform { backend "s3" {} }` num arquivo local, fora do commit (por exemplo
-  `infra/ecs/backend_override.tf`), e o `infra/ecs/backend.hcl` (git-ignored) com `bucket`, `region`,
-  `use_lockfile` (ou `dynamodb_table`) iguais aos do outro repositório e uma `key` diferente.
+**Backend.** Os dois módulos declaram `backend "s3" {}` (configuração parcial) e usam o mesmo bucket com
+chaves diferentes. Cada um tem um `backend.hcl.example`, e o `backend.hcl` real fica fora do git:
 
-Exemplo de `backend.hcl`:
+| Repositório | `key` |
+|---|---|
+| `consultas-operacoes-credito` | `consultas-operacoes-credito/ecs/terraform.tfstate` |
+| `consultas-operacoes-credito-mainframe` (este) | `consultas-operacoes-credito-mainframe/ecs/terraform.tfstate` |
 
-```hcl
-bucket       = "<bucket-do-state>"
-key          = "consultas-operacoes-credito-mainframe/infra/ecs/terraform.tfstate"   # diferente da chave do outro repo
-region       = "sa-east-1"
-use_lockfile = true
-```
+Se o state do `infra/ecs` de `consultas-operacoes-credito` ainda é **local** (antes do backend S3), migre-o
+primeiro para a chave dele: `terraform init -backend-config=backend.hcl -migrate-state`, no checkout de lá.
+Depois disso, nenhum dos dois repositórios usa state local.
 
 ### 2.2 Backup e inventário (no `infra/ecs` de `consultas-operacoes-credito`)
 
@@ -181,7 +175,7 @@ Use o checkout e o backend com que esse módulo é aplicado em produção.
 
 ```powershell
 cd <consultas-operacoes-credito>\infra\ecs
-terraform init                                   # mesmo backend de produção
+terraform init -backend-config=backend.hcl       # chave consultas-operacoes-credito/ecs/...
 # cmd /c grava os bytes como vieram (o pipe do PowerShell 5.1 recodifica a saída)
 cmd /c "terraform state pull > `"$trabalho\visao-consolidada-antes.tfstate`""   # backup
 Copy-Item "$trabalho\visao-consolidada-antes.tfstate" "$trabalho\origem.tfstate"
@@ -201,8 +195,7 @@ aws_lb_target_group.this["fonte-primaria"]
 ```
 
 Há um 8º, `aws_appautoscaling_policy.cpu["fonte-primaria"]`, se `fonte_primaria.alvo_cpu` foi definido no
-tfvars (o padrão é `null`). O laço de `state rm` do `infra/ecs/README.md` do outro repositório não inclui esse
-endereço. Mova e remova **todos** os que a lista mostrar.
+tfvars (o padrão é `null`). Mova e remova **todos** os que a lista mostrar.
 
 ### 2.3 Montar o state deste repositório
 
