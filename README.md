@@ -475,6 +475,9 @@ requisições e o `max_tasks` fixo que também vira `CONSULTAS_FONTE_PRIMARIA_CO
 `maximumPercent=100` no deploy (ADR-0015). O serviço e a regra da visão consolidada, e o API Gateway, ficam no
 outro repositório. Dimensionamento em `docs/capacidade-ecs-fargate.md`; testes de carga em `carga/`.
 
+O cutover em produção (trocar a imagem do serviço `fonte-primaria` e separar o state do Terraform do
+`infra/ecs` do outro repositório) está em [`docs/runbook-cutover.md`](docs/runbook-cutover.md).
+
 ## Testes
 
 ```bash
