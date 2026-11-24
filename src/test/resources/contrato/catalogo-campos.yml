@@ -1,0 +1,124 @@
+# Catálogo de campos (ADR-0005): campos válidos e tipo de cada um, por bloco.
+# Incluir ou remover um campo de bloco = editar este arquivo, sem mudar código.
+# Este arquivo é contrato (ADR-0017): a mudança vale também para o schema bloco.<nome> de contrato/openapi.yaml
+# (ContratoOpenApiCatalogoTest), e o repositório do mainframe lê este caminho da main.
+#
+# bloco:     nome canônico (o mesmo do expand, da chave do JSON e da SK)
+# estrutura: objeto | lista
+# campos:    nome, tipo e, opcionalmente, anulavel (default false)
+# tipo:      numero | decimal | data (yyyy-MM-dd) | data_hora (yyyy-MM-ddTHH:mm:ss) | texto | booleano
+#            | objeto | lista (estes dois declaram os próprios campos)
+# Todo bloco declara id_operacao (numero).
+consultas:
+  catalogo:
+    blocos:
+      - bloco: operacao
+        estrutura: objeto
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: situacao_operacao_credito, tipo: texto }
+          - { nome: data_contratacao_operacao, tipo: data }
+          - { nome: data_baixa_operacao, tipo: data, anulavel: true }
+          - { nome: cpf_cnpj, tipo: texto }
+          # Custódia em que a operação foi encontrada (SF, F5, OD ou NSF); preenchido pela API, não pela fonte
+          - { nome: custodia, tipo: texto }
+
+      - bloco: originacao
+        estrutura: objeto
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: canal_contratacao, tipo: texto }
+          # A custódia F5 não tem dependência contábil: o campo fica ausente nas operações dela
+          - { nome: dependencia_contabil, tipo: texto, anulavel: true }
+
+      - bloco: componentes
+        estrutura: lista
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: numero_componente_financeiro, tipo: numero }
+          - { nome: codigo_tipo_componente_financeiro, tipo: numero }
+          - { nome: tipo_componente_financeiro, tipo: texto }
+          - { nome: valor_componente_financeiro, tipo: decimal }
+          - { nome: situacao_componente_financeiro, tipo: texto }
+
+      - bloco: parcelas
+        estrutura: lista
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: numero_parcela_amortizacao, tipo: numero }
+          - { nome: numero_plano_amortizacao, tipo: numero }
+          - { nome: data_vencimento_parcela, tipo: data }
+          - { nome: valor_principal_parcela, tipo: decimal }
+          - { nome: valor_juros_principal_parcela, tipo: decimal }
+          - { nome: situacao_parcela, tipo: texto }
+
+      - bloco: amortizacoes
+        estrutura: lista
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: numero_parcela_amortizacao, tipo: numero }
+          - { nome: numero_plano_amortizacao, tipo: numero }
+          - { nome: valor_principal_amortizado, tipo: decimal }
+          - { nome: valor_juros_principal_amortizado, tipo: decimal }
+          - { nome: indicador_ocorrencia_valida, tipo: booleano }
+          - { nome: data_valor_movimento, tipo: data_hora }
+
+      - bloco: recebimentos
+        estrutura: lista
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: data_valor_movimento, tipo: data_hora }
+          - { nome: valor_recebido, tipo: decimal }
+          - { nome: tipo_baixa, tipo: texto }
+          - { nome: motivo_baixa, tipo: texto }
+
+      - bloco: plano
+        estrutura: objeto
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: numero_plano_amortizacao_ativo, tipo: numero }
+          - nome: dados_plano_amortizacao
+            tipo: lista
+            campos:
+              - { nome: taxa_juros_nominal, tipo: decimal }
+              - { nome: taxa_juros_efetiva, tipo: decimal }
+              - { nome: situacao_plano_amortizacao, tipo: texto }
+              - { nome: numero_plano_amortizacao_ativo, tipo: numero }
+              - nome: encargos_moratorios
+                tipo: lista
+                campos:
+                  - { nome: dia_inicio, tipo: numero }
+                  - { nome: dia_fim, tipo: numero }
+                  - { nome: taxa_mora, tipo: decimal }
+                  - { nome: taxa_multa, tipo: decimal }
+              - nome: desconto_bom_pagador
+                tipo: lista
+                campos:
+                  - { nome: quantidade_dias_atraso, tipo: numero }
+                  - { nome: percentual_desconto, tipo: decimal }
+
+      - bloco: saldo
+        estrutura: objeto
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: saldo_devedor_operacao, tipo: decimal }
+          - { nome: quantidade_dias_atraso, tipo: numero }
+          - { nome: data_posicao_calculo, tipo: data }
+          - nome: saldo_parcelas
+            tipo: lista
+            campos:
+              - { nome: id_operacao, tipo: numero }
+              - { nome: numero_parcela_amortizacao, tipo: numero }
+              - { nome: numero_plano_amortizacao, tipo: numero }
+              - { nome: saldo_devedor, tipo: decimal }
+
+      - bloco: controles_iof
+        estrutura: lista
+        campos:
+          - { nome: id_operacao, tipo: numero }
+          - { nome: numero_parcela_amortizacao, tipo: numero }
+          - { nome: numero_plano_amortizacao, tipo: numero }
+          - { nome: numero_sequencial_controle_iof, tipo: numero }
+          - { nome: valor_iof_devido, tipo: decimal }
+          - { nome: valor_iof_pago, tipo: decimal }
+          - { nome: data_pagamento_iof, tipo: data, anulavel: true }

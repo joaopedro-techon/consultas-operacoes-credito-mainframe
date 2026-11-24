@@ -1,0 +1,589 @@
+# Contrato HTTP da consulta de operações de crédito (ADR-0017): escrito à mão, fonte da verdade.
+#
+# Este arquivo e src/main/resources/catalogo-campos.yml são o contrato entre este repositório (visão consolidada)
+# e o consultas-operacoes-credito-mainframe (fonte primária), que os baixa da main por URL raw e valida as
+# respostas dele contra eles. Mudou aqui primeiro; o mainframe é alinhado em seguida.
+#
+# Verificado por:
+# - ContratoOpenApiIT / ResilienciaVisaoConsolidadaIT: respostas reais da rota /v1/operacoes-credito (200, 400,
+#   404, 502, 503, 504) validadas contra este arquivo;
+# - ContratoOpenApiCatalogoTest: os schemas dos blocos batem com o catálogo de campos (nomes, tipos, anulável).
+#
+# Os blocos trafegam como Map dirigido pelo catálogo (ADR-0005): o schema de cada bloco lista os campos do
+# catálogo com o tipo, mas nenhum campo é obrigatório (fields reduz os blocos e uma custódia pode não ter um campo,
+# como a F5 sem dependencia_contabil) e campos fora do catálogo não são recusados. O additionalProperties é sempre
+# explícito: o validador da Atlassian trata a ausência como false.
+openapi: 3.0.3
+info:
+  title: Consultas de Operações de Crédito
+  version: 1.4.0
+  description: |
+    API REST, somente leitura, de consulta de operações de crédito da Custódia de Ativos PF.
+
+    Duas rotas com o **mesmo contrato** (headers, parâmetros, corpo e erros); muda só a fonte dos dados:
+
+    - `/v1/operacoes-credito`: visão consolidada (DynamoDB, com cache por bloco);
+    - `/v1/operacoes-credito/fonte-primaria`: fonte primária (gateway do mainframe), em outro serviço.
+
+    Todo erro é Problem Details (RFC 9457, `application/problem+json`) com a propriedade `correlation_id`.
+    Toda resposta traz o header `x-correlationid`.
+tags:
+  - name: operacoes-credito
+    description: Consulta de operações de crédito por operação, cliente ou conta
+
+paths:
+  /v1/operacoes-credito:
+    get:
+      tags: [operacoes-credito]
+      operationId: consultarVisaoConsolidada
+      summary: Consulta na visão consolidada
+      description: |
+        Consulta as operações na visão consolidada (DynamoDB). Bloco pedido e ainda ausente nela volta `null` e
+        listado em `x-blocos-indisponiveis`.
+      parameters:
+        - $ref: '#/components/parameters/TipoConsulta'
+        - $ref: '#/components/parameters/CorrelationIdRequisicao'
+        - $ref: '#/components/parameters/Consumidor'
+        - $ref: '#/components/parameters/IdOperacao'
+        - $ref: '#/components/parameters/CpfCnpj'
+        - $ref: '#/components/parameters/Conta'
+        - $ref: '#/components/parameters/LimiteOperacoes'
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Filter'
+      responses:
+        '200':
+          $ref: '#/components/responses/Consulta'
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+        '404':
+          $ref: '#/components/responses/NaoEncontrada'
+        '429':
+          $ref: '#/components/responses/CotaEsgotada'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+        '502':
+          $ref: '#/components/responses/FonteIndisponivel'
+        '503':
+          $ref: '#/components/responses/FonteTemporariamenteIndisponivel'
+        '504':
+          $ref: '#/components/responses/TempoEsgotado'
+
+  /v1/operacoes-credito/fonte-primaria:
+    get:
+      tags: [operacoes-credito]
+      operationId: consultarFontePrimaria
+      summary: Consulta na fonte primária
+      description: |
+        Mesmo contrato de `/v1/operacoes-credito`, com os dados lidos do mainframe a cada requisição (sem cache de
+        dados). Falha de um bloco que não é `operacao` deixa só aquele bloco `null` e listado em
+        `x-blocos-indisponiveis` (resposta parcial, ADR-0013).
+      parameters:
+        - $ref: '#/components/parameters/TipoConsulta'
+        - $ref: '#/components/parameters/CorrelationIdRequisicao'
+        - $ref: '#/components/parameters/Consumidor'
+        - $ref: '#/components/parameters/IdOperacao'
+        - $ref: '#/components/parameters/CpfCnpj'
+        - $ref: '#/components/parameters/Conta'
+        - $ref: '#/components/parameters/LimiteOperacoes'
+        - $ref: '#/components/parameters/Expand'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Filter'
+      responses:
+        '200':
+          $ref: '#/components/responses/Consulta'
+        '400':
+          $ref: '#/components/responses/RequisicaoInvalida'
+        '404':
+          $ref: '#/components/responses/NaoEncontrada'
+        '429':
+          $ref: '#/components/responses/CotaEsgotada'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+        '502':
+          $ref: '#/components/responses/FonteIndisponivel'
+        '503':
+          $ref: '#/components/responses/FonteTemporariamenteIndisponivel'
+        '504':
+          $ref: '#/components/responses/TempoEsgotado'
+components:
+  parameters:
+    TipoConsulta:
+      name: x-tipo-consulta
+      in: header
+      required: true
+      description: |
+        Tipo de consulta. Define o identificador obrigatório: `OPERACAO` → `id_operacao`; `CLIENTE` → `cpf_cnpj`;
+        `CONTA` → `conta`. Identificador de outro tipo, ou `limite_operacoes` em `OPERACAO`, é 400.
+      schema:
+        type: string
+        enum: [OPERACAO, CLIENTE, CONTA]
+    CorrelationIdRequisicao:
+      name: x-correlationid
+      in: header
+      required: false
+      description: Identificador de correlação. Ausente, a API gera um UUID; fora do padrão, 400.
+      schema:
+        $ref: '#/components/schemas/CorrelationId'
+    Consumidor:
+      name: x-consumidor
+      in: header
+      required: false
+      description: |
+        Identificador do consumidor (id da API key no gateway), usado em logs, métricas e no evento de consumo.
+        Ausente vira `desconhecido`; fora do padrão vira `invalido` (não é erro).
+      schema:
+        type: string
+    IdOperacao:
+      name: id_operacao
+      in: query
+      required: false
+      description: Número da operação; obrigatório e só aceito em `OPERACAO`.
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]{0,17}$'
+      example: '100000001'
+    CpfCnpj:
+      name: cpf_cnpj
+      in: query
+      required: false
+      description: |
+        CPF (11 dígitos) ou CNPJ (14 caracteres, numérico ou alfanumérico em maiúsculas), sem pontuação e com
+        dígito verificador válido; obrigatório e só aceito em `CLIENTE`.
+      schema:
+        type: string
+        pattern: '^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$'
+      example: '52998224725'
+    Conta:
+      name: conta
+      in: query
+      required: false
+      description: Conta, só dígitos; obrigatória e só aceita em `CONTA`.
+      schema:
+        type: string
+        pattern: '^[0-9]{1,20}$'
+      example: '434115000065874'
+    LimiteOperacoes:
+      name: limite_operacoes
+      in: query
+      required: false
+      description: |
+        Só em `CLIENTE` e `CONTA`: no máximo esta quantidade de operações, da mais recente para a mais antiga por
+        data de contratação. Ausente: todas.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+    Expand:
+      name: expand
+      in: query
+      required: false
+      description: |
+        Blocos a incluir além de `operacao` e `originacao` (que vêm sempre), separados por vírgula, com o nome
+        canônico: `operacao`, `originacao`, `componentes`, `parcelas`, `amortizacoes`, `recebimentos`, `plano`,
+        `saldo`, `controles_iof`. Repetições e espaços em volta dos nomes são ignorados; nome desconhecido
+        (inclusive em maiúsculas) ou item vazio é 400.
+      schema:
+        type: string
+      example: parcelas,saldo
+    Fields:
+      name: fields
+      in: query
+      required: false
+      description: |
+        Campos a devolver, `bloco.campo` separados por vírgula, com ponto também em campos aninhados (ex.:
+        `saldo.saldo_parcelas.saldo_devedor`). Bloco sem campos listados volta completo; `id_operacao` volta
+        sempre onde existe. Campo fora do catálogo (`catalogo-campos.yml`) ou bloco fora do `expand` é 400.
+      schema:
+        type: string
+      example: operacao.situacao_operacao_credito,parcelas.situacao_parcela
+    Filter:
+      name: filter
+      in: query
+      required: false
+      description: |
+        Filtro RSQL sobre o que a fonte devolveu, com seletor `<bloco>.<campo>` e comparação pelo tipo do
+        catálogo. Operadores `==`, `!=`, `=lt=`/`<`, `=le=`/`<=`, `=gt=`/`>`, `=ge=`/`>=`, `=in=(a,b)`,
+        `=out=(a,b)`; `;` é "e", `,` é "ou". Em `operacao`/`originacao` filtra as operações; nos demais blocos,
+        os itens da lista. Sintaxe inválida, campo fora do catálogo ou bloco fora do `expand` é 400.
+      schema:
+        type: string
+      example: parcelas.situacao_parcela==ABERTA
+
+  headers:
+    CorrelationId:
+      description: Identificador de correlação da requisição (o recebido, se válido, ou um UUID gerado).
+      required: true
+      schema:
+        $ref: '#/components/schemas/CorrelationId'
+    BlocosIndisponiveis:
+      description: |
+        Blocos pedidos e ausentes (`null`) em alguma operação de `data`, separados por vírgula na ordem canônica.
+        Ausente quando não há bloco indisponível. Bloco-lista vazio (`[]`) não é indisponível.
+      required: false
+      schema:
+        type: string
+        pattern: '^(operacao|originacao|componentes|parcelas|amortizacoes|recebimentos|plano|saldo|controles_iof)(,(operacao|originacao|componentes|parcelas|amortizacoes|recebimentos|plano|saldo|controles_iof))*$'
+      example: plano,saldo
+    RetryAfter:
+      description: Segundos a esperar antes de tentar de novo (pelo menos 1).
+      required: true
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]*$'
+
+  responses:
+    Consulta:
+      description: |
+        Operações encontradas. `OPERACAO` devolve uma operação; `CLIENTE`/`CONTA`, da mais recente para a mais
+        antiga, possivelmente nenhuma. Operações que o `filter` exclui ficam fora de `data` (pode ficar vazio).
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+        x-blocos-indisponiveis:
+          $ref: '#/components/headers/BlocosIndisponiveis'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ConsultaResponse'
+    RequisicaoInvalida:
+      description: |
+        Header ou parâmetro inválido, ausente, repetido ou incoerente com o tipo de consulta; `expand`, `fields`
+        ou `filter` inválidos. O `detail` explica o que corrigir sem ecoar o valor recebido.
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema400'
+    NaoEncontrada:
+      description: Operação inexistente (`OPERACAO`). `CLIENTE`/`CONTA` sem operações é 200 com `data` vazio.
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema404'
+    CotaEsgotada:
+      description: Cota de chamadas ao mainframe esgotada (hoje, só a fonte primária). Sem espera na API.
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema429'
+    ErroInterno:
+      description: Erro inesperado. O `detail` nunca traz a mensagem da exceção.
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema500'
+    FonteIndisponivel:
+      description: A fonte de dados falhou ou devolveu um item fora do formato, depois das tentativas.
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema502'
+    FonteTemporariamenteIndisponivel:
+      description: |
+        Fonte protegida (circuit breaker aberto, bulkhead cheio, rate limiter interno, pool esgotado, throttling)
+        ou custódia sem a qual não é possível afirmar o resultado (com `custodias_indisponiveis`).
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema503'
+    TempoEsgotado:
+      description: |
+        Prazo da requisição do tipo de consulta esgotado. O `detail` sugere `limite_operacoes`, menos blocos no
+        `expand` ou a consulta por `OPERACAO`.
+      headers:
+        x-correlationid:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema504'
+
+  schemas:
+    CorrelationId:
+      type: string
+      pattern: '^[A-Za-z0-9-]{1,64}$'
+
+    ConsultaResponse:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Operacao'
+
+    Operacao:
+      description: |
+        Uma operação: uma chave por bloco, com o nome canônico. `operacao` e `originacao` vêm sempre; os demais,
+        só se pedidos no `expand`. Bloco pedido e indisponível vem `null` (e listado em `x-blocos-indisponiveis`).
+      type: object
+      required: [operacao, originacao]
+      additionalProperties: false
+      properties:
+        operacao: { $ref: '#/components/schemas/bloco.operacao' }
+        originacao: { $ref: '#/components/schemas/bloco.originacao' }
+        componentes: { $ref: '#/components/schemas/bloco.componentes' }
+        parcelas: { $ref: '#/components/schemas/bloco.parcelas' }
+        amortizacoes: { $ref: '#/components/schemas/bloco.amortizacoes' }
+        recebimentos: { $ref: '#/components/schemas/bloco.recebimentos' }
+        plano: { $ref: '#/components/schemas/bloco.plano' }
+        saldo: { $ref: '#/components/schemas/bloco.saldo' }
+        controles_iof: { $ref: '#/components/schemas/bloco.controles_iof' }
+
+    # Um schema por bloco do catálogo, com o nome canônico (bloco.<nome>). Todo bloco é nullable (null =
+    # indisponível), exceto operacao: sem ele a operação não existe.
+    # Tipos do catálogo: numero → integer; decimal → number; data → string yyyy-MM-dd;
+    # data_hora → string yyyy-MM-ddTHH:mm:ss (sem fuso); texto → string; booleano → boolean;
+    # objeto → object; lista → array de object. anulavel: true → nullable: true.
+    Data:
+      type: string
+      format: date
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    DataNula:
+      type: string
+      format: date
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+      nullable: true
+    DataHora:
+      type: string
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+
+    bloco.operacao:
+      type: object
+      additionalProperties: true
+      properties:
+        id_operacao: { type: integer, format: int64 }
+        situacao_operacao_credito: { type: string }
+        data_contratacao_operacao: { $ref: '#/components/schemas/Data' }
+        data_baixa_operacao: { $ref: '#/components/schemas/DataNula' }
+        cpf_cnpj: { type: string }
+        custodia:
+          description: Custódia em que a operação foi encontrada; preenchido pela API, não pela fonte.
+          type: string
+          enum: [SF, F5, OD, NSF]
+
+    bloco.originacao:
+      type: object
+      additionalProperties: true
+      nullable: true
+      properties:
+        id_operacao: { type: integer, format: int64 }
+        canal_contratacao: { type: string }
+        dependencia_contabil:
+          description: Ausente nas operações da custódia F5, que não tem dependência contábil.
+          type: string
+          nullable: true
+
+    bloco.componentes:
+      type: array
+      nullable: true
+      items:
+        type: object
+        additionalProperties: true
+        properties:
+          id_operacao: { type: integer, format: int64 }
+          numero_componente_financeiro: { type: integer, format: int64 }
+          codigo_tipo_componente_financeiro: { type: integer, format: int64 }
+          tipo_componente_financeiro: { type: string }
+          valor_componente_financeiro: { type: number }
+          situacao_componente_financeiro: { type: string }
+
+    bloco.parcelas:
+      type: array
+      nullable: true
+      items:
+        type: object
+        additionalProperties: true
+        properties:
+          id_operacao: { type: integer, format: int64 }
+          numero_parcela_amortizacao: { type: integer, format: int64 }
+          numero_plano_amortizacao: { type: integer, format: int64 }
+          data_vencimento_parcela: { $ref: '#/components/schemas/Data' }
+          valor_principal_parcela: { type: number }
+          valor_juros_principal_parcela: { type: number }
+          situacao_parcela: { type: string }
+
+    bloco.amortizacoes:
+      type: array
+      nullable: true
+      items:
+        type: object
+        additionalProperties: true
+        properties:
+          id_operacao: { type: integer, format: int64 }
+          numero_parcela_amortizacao: { type: integer, format: int64 }
+          numero_plano_amortizacao: { type: integer, format: int64 }
+          valor_principal_amortizado: { type: number }
+          valor_juros_principal_amortizado: { type: number }
+          indicador_ocorrencia_valida: { type: boolean }
+          data_valor_movimento: { $ref: '#/components/schemas/DataHora' }
+
+    bloco.recebimentos:
+      type: array
+      nullable: true
+      items:
+        type: object
+        additionalProperties: true
+        properties:
+          id_operacao: { type: integer, format: int64 }
+          data_valor_movimento: { $ref: '#/components/schemas/DataHora' }
+          valor_recebido: { type: number }
+          tipo_baixa: { type: string }
+          motivo_baixa: { type: string }
+
+    bloco.plano:
+      type: object
+      additionalProperties: true
+      nullable: true
+      properties:
+        id_operacao: { type: integer, format: int64 }
+        numero_plano_amortizacao_ativo: { type: integer, format: int64 }
+        dados_plano_amortizacao:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              taxa_juros_nominal: { type: number }
+              taxa_juros_efetiva: { type: number }
+              situacao_plano_amortizacao: { type: string }
+              numero_plano_amortizacao_ativo: { type: integer, format: int64 }
+              encargos_moratorios:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    dia_inicio: { type: integer, format: int64 }
+                    dia_fim: { type: integer, format: int64 }
+                    taxa_mora: { type: number }
+                    taxa_multa: { type: number }
+              desconto_bom_pagador:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    quantidade_dias_atraso: { type: integer, format: int64 }
+                    percentual_desconto: { type: number }
+
+    bloco.saldo:
+      type: object
+      additionalProperties: true
+      nullable: true
+      properties:
+        id_operacao: { type: integer, format: int64 }
+        saldo_devedor_operacao: { type: number }
+        quantidade_dias_atraso: { type: integer, format: int64 }
+        data_posicao_calculo: { $ref: '#/components/schemas/Data' }
+        saldo_parcelas:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              id_operacao: { type: integer, format: int64 }
+              numero_parcela_amortizacao: { type: integer, format: int64 }
+              numero_plano_amortizacao: { type: integer, format: int64 }
+              saldo_devedor: { type: number }
+
+    bloco.controles_iof:
+      type: array
+      nullable: true
+      items:
+        type: object
+        additionalProperties: true
+        properties:
+          id_operacao: { type: integer, format: int64 }
+          numero_parcela_amortizacao: { type: integer, format: int64 }
+          numero_plano_amortizacao: { type: integer, format: int64 }
+          numero_sequencial_controle_iof: { type: integer, format: int64 }
+          valor_iof_devido: { type: number }
+          valor_iof_pago: { type: number }
+          data_pagamento_iof: { $ref: '#/components/schemas/DataNula' }
+
+    ProblemDetails:
+      description: Problem Details (RFC 9457) com as extensões desta API.
+      type: object
+      required: [title, status, detail, correlation_id]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          description: '`about:blank` (o significado é o do status HTTP).'
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          description: Caminho da requisição.
+        correlation_id:
+          $ref: '#/components/schemas/CorrelationId'
+        custodias_indisponiveis:
+          description: Só no 503 de custódia indisponível; códigos das custódias que não responderam.
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [SF, F5, OD, NSF]
+    Problema400:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - additionalProperties: true
+          properties: { status: { type: integer, enum: [400] } }
+    Problema404:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - additionalProperties: true
+          properties: { status: { type: integer, enum: [404] } }
+    Problema429:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - additionalProperties: true
+          properties: { status: { type: integer, enum: [429] } }
+    Problema500:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - additionalProperties: true
+          properties: { status: { type: integer, enum: [500] } }
+    Problema502:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - additionalProperties: true
+          properties: { status: { type: integer, enum: [502] } }
+    Problema503:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - additionalProperties: true
+          properties: { status: { type: integer, enum: [503] } }
+    Problema504:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - additionalProperties: true
+          properties: { status: { type: integer, enum: [504] } }

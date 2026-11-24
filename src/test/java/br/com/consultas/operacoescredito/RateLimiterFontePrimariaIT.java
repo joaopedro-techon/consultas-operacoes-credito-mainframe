@@ -53,15 +53,18 @@ class RateLimiterFontePrimariaIT {
         for (int i = 0; i < PERMISSOES / CHAMADAS_POR_CONSULTA; i++) {
             consultar(id).expectStatus().isOk();
         }
-        consultar(id)
+        var resposta = consultar(id)
                 .expectStatus().isEqualTo(429)
                 .expectHeader().valueEquals("Retry-After", "60")
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.title").isEqualTo("Cota da fonte de dados esgotada")
-                .jsonPath("$.correlation_id").exists();
+                .jsonPath("$.correlation_id").exists()
+                .returnResult();
 
         assertThat(gateway.contar(GatewayMainframeSimulado.blocos(id))).isEqualTo(PERMISSOES);
+        // 429 do contrato (ADR-0017): Problem Details com Retry-After e x-correlationid
+        ContratoOpenApi.assertConforme(resposta);
     }
 
     private RestTestClient.ResponseSpec consultar(long id) {

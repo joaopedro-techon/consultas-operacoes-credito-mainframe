@@ -113,15 +113,17 @@ class ResilienciaFontePrimariaIT {
         var parcelas = bloco("SF", id, "parcelas");
         gateway.registrar(parcelas, 503, "fora do ar", 0);
 
-        consultarOperacao(id, "parcelas")
+        var resposta = consultarOperacao(id, "parcelas")
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(BLOCOS_INDISPONIVEIS, "parcelas")
                 .expectBody()
                 .jsonPath("$.data[0].operacao.id_operacao").isEqualTo(id)
                 .jsonPath("$.data[0].originacao.canal_contratacao").isEqualTo("MOBILE")
-                .jsonPath("$.data[0].parcelas").doesNotExist();
+                .jsonPath("$.data[0].parcelas").doesNotExist()
+                .returnResult();
 
         assertThat(gateway.contar(parcelas)).as("1 tentativa + 1 extra").isEqualTo(2);
+        ContratoOpenApi.assertConforme(resposta);
     }
 
     @Test
@@ -158,14 +160,17 @@ class ResilienciaFontePrimariaIT {
         var id = 920000006L;
         gateway.registrar(bloco("F5", id, "operacao"), 500, "erro", 0);
 
-        consultarOperacao(id, null)
+        var resposta = consultarOperacao(id, null)
                 .expectStatus().isEqualTo(503)
                 .expectHeader().exists("Retry-After")
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.status").isEqualTo(503)
                 .jsonPath("$.custodias_indisponiveis[0]").isEqualTo("F5")
-                .jsonPath("$.custodias_indisponiveis.length()").isEqualTo(1);
+                .jsonPath("$.custodias_indisponiveis.length()").isEqualTo(1)
+                .returnResult();
+
+        ContratoOpenApi.assertConforme(resposta);
     }
 
     @Test
@@ -203,18 +208,20 @@ class ResilienciaFontePrimariaIT {
         gateway.registrar(parcelas, 200, PAGINA_VAZIA, 4000);
 
         var inicio = System.nanoTime();
-        consultarOperacao(id, "parcelas")
+        var resposta = consultarOperacao(id, "parcelas")
                 .expectStatus().isEqualTo(504)
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.status").isEqualTo(504)
                 .jsonPath("$.correlation_id").exists()
                 .jsonPath("$.detail").value(String.class, detail -> assertThat(detail)
-                        .contains("limite_operacoes", "expand", "OPERACAO"));
+                        .contains("limite_operacoes", "expand", "OPERACAO"))
+                .returnResult();
         var duracaoMs = (System.nanoTime() - inicio) / 1_000_000;
 
         assertThat(duracaoMs).as("504 no prazo de 1 s da OPERACAO, não no atraso de 4 s").isBetween(900L, 2500L);
         assertThat(gateway.contar(parcelas)).as("timeout de resposta não é retentado").isEqualTo(1);
+        ContratoOpenApi.assertConforme(resposta);
     }
 
     @Test
@@ -223,13 +230,15 @@ class ResilienciaFontePrimariaIT {
                 PAGINA_VAZIA, 4000);
 
         var inicio = System.nanoTime();
-        client.get().uri(ROTA + "?cpf_cnpj=70000000744")
+        var resposta = client.get().uri(ROTA + "?cpf_cnpj=70000000744")
                 .header("x-tipo-consulta", "CLIENTE")
                 .exchange()
-                .expectStatus().isEqualTo(504);
+                .expectStatus().isEqualTo(504)
+                .expectBody().returnResult();
         var duracaoMs = (System.nanoTime() - inicio) / 1_000_000;
 
         assertThat(duracaoMs).as("504 no prazo de 1,5 s do CLIENTE").isBetween(1400L, 3000L);
+        ContratoOpenApi.assertConforme(resposta);
     }
 
     @Test
@@ -242,11 +251,13 @@ class ResilienciaFontePrimariaIT {
         abrirCircuitoDeParcelas(id);
         var chamadasComCircuitoAberto = gateway.contar(parcelas);
 
-        consultarOperacao(id, "parcelas")
+        var resposta = consultarOperacao(id, "parcelas")
                 .expectStatus().isOk()
                 .expectHeader().valueEquals(BLOCOS_INDISPONIVEIS, "parcelas")
                 .expectBody()
-                .jsonPath("$.data[0].originacao.canal_contratacao").isEqualTo("MOBILE");
+                .jsonPath("$.data[0].originacao.canal_contratacao").isEqualTo("MOBILE")
+                .returnResult();
+        ContratoOpenApi.assertConforme(resposta);
 
         assertThat(gateway.contar(parcelas)).as("circuito aberto não chama o gateway nem retenta")
                 .isEqualTo(chamadasComCircuitoAberto);
@@ -310,15 +321,19 @@ class ResilienciaFontePrimariaIT {
             }
             assertThat(ocupadas).isEqualTo(TETO_CLIENTE_CONTA);
 
-            client.get().uri(ROTA + "?cpf_cnpj=52998224725")
+            var cliente = client.get().uri(ROTA + "?cpf_cnpj=52998224725")
                     .header("x-tipo-consulta", "CLIENTE")
                     .exchange()
                     .expectStatus().isEqualTo(503)
-                    .expectHeader().valueEquals("Retry-After", "1");
-            client.get().uri(ROTA + "?conta=434115000065874")
+                    .expectHeader().valueEquals("Retry-After", "1")
+                    .expectBody().returnResult();
+            var conta = client.get().uri(ROTA + "?conta=434115000065874")
                     .header("x-tipo-consulta", "CONTA")
                     .exchange()
-                    .expectStatus().isEqualTo(503);
+                    .expectStatus().isEqualTo(503)
+                    .expectBody().returnResult();
+            ContratoOpenApi.assertConforme(cliente);
+            ContratoOpenApi.assertConforme(conta);
             consultarOperacao(id, null).expectStatus().isOk();
         } finally {
             for (int i = 0; i < ocupadas; i++) {
