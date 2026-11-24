@@ -10,12 +10,11 @@ alb_listener_arn   = "arn:aws:elasticloadbalancing:sa-east-1:123456789012:listen
 execution_role_arn = "arn:aws:iam::123456789012:role/consultas-ecs-execution"
 task_role_arn      = "arn:aws:iam::123456789012:role/consultas-ecs-task"
 
-imagem = "123456789012.dkr.ecr.sa-east-1.amazonaws.com/consultas-operacoes-credito@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+imagem = "123456789012.dkr.ecr.sa-east-1.amazonaws.com/consultas-operacoes-credito-mainframe@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 ambiente = {
   AWS_REGION                     = "sa-east-1"
   CONSULTAS_AMBIENTE             = "prd"
-  CONSULTAS_DYNAMODB_TABELA      = "operacoes-credito"
   CONSULTAS_VALKEY_HOST          = "consultas.xxxxxx.ng.0001.sae1.cache.amazonaws.com"
   CONSULTAS_FONTE_PRIMARIA_URL   = "https://gateway-mainframe.interno.exemplo"
   CONSULTAS_EVENTOS_SQS_URL_FILA = "https://sqs.sa-east-1.amazonaws.com/123456789012/consultas-eventos-consumo"
@@ -27,14 +26,6 @@ segredos = {
 }
 
 # Estimativas de docs/capacidade-ecs-fargate.md (recalibrar com o k6)
-visao_consolidada = {
-  cpu                              = 2048
-  memory                           = 4096
-  min_tasks                        = 12
-  max_tasks                        = 150
-  alvo_requisicoes_por_task_minuto = 33000 # 550 req/s por task x 60
-  alvo_cpu                         = 60
-}
 
 fonte_primaria = {
   cpu                              = 1024
