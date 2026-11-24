@@ -1,7 +1,7 @@
 apiVersion: 1
 
 providers:
-  - name: consultas-operacoes-credito
+  - name: consultas-operacoes-credito-mainframe
     folder: Consultas de Operações de Crédito
     type: file
     disableDeletion: true

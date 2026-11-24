@@ -7,7 +7,7 @@ COPY mvnw pom.xml ./
 RUN chmod +x mvnw && ./mvnw -q -B dependency:go-offline
 COPY src/ src/
 RUN ./mvnw -q -B package -DskipTests \
-    && java -Djarmode=tools -jar target/consultas-operacoes-credito-*.jar extract --layers --launcher --destination extracted
+    && java -Djarmode=tools -jar target/consultas-operacoes-credito-mainframe-*.jar extract --layers --launcher --destination extracted
 
 FROM eclipse-temurin:25.0.5_8-jre-noble@sha256:23481dc33a759b79d62814ceb1ec27a0d1a84da9d7aab0609577427176fbb1b7
 # Usuário sem privilégios com UID/GID numéricos: USER numérico permite ao runtime (ex.: runAsNonRoot do
