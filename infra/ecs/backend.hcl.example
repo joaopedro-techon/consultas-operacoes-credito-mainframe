@@ -1,0 +1,10 @@
+# Copie para backend.hcl (git-ignored) e use: terraform init -backend-config=backend.hcl
+bucket       = "<bucket-de-state-terraform>" # o mesmo bucket de consultas-operacoes-credito
+region       = "sa-east-1"
+encrypt      = true
+use_lockfile = true # lock nativo no S3 (Terraform >= 1.10), sem tabela DynamoDB
+
+# Chave própria deste repositório. NUNCA use a de consultas-operacoes-credito (consultas-operacoes-credito/ecs/...):
+# os nomes de recurso são iguais (var.nome e a chave fonte-primaria), e um apply com o state errado destruiria o
+# serviço do outro repositório (docs/runbook-cutover.md, seção 2.1).
+key = "consultas-operacoes-credito-mainframe/ecs/terraform.tfstate"
