@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Consulta OPERACAO: descoberta de custódia e paginação",
+    "locale": "pt-BR",
+    "output": "docs/arquitetura/sequencia-consulta-operacao.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/joaopedro-techon/consultas-operacoes-credito-mainframe.git",
+      "provider": "github",
+      "revision": "31f46e27d0026a114312855139e062a0aaab09e8"
+    },
+    "legend": {
+      "entries": {
+        "default": {
+          "label": "Chamada"
+        },
+        "emphasis": {
+          "label": "Caminho principal"
+        },
+        "dashed": {
+          "label": "Assíncrona"
+        },
+        "return": {
+          "label": "Resposta"
+        }
+      }
+    }
+  },
+  "participants": [
+    {
+      "id": "consumidor",
+      "type": "external",
+      "label": "Consumidor",
+      "sublabel": "API key",
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 40,
+          "end_line": 50
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "API",
+      "sublabel": "borda + caso de uso",
+      "sources": [
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/adapters/in/web/OperacoesCreditoController.java",
+          "line": 40,
+          "end_line": 59
+        },
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/application/service/ConsultarOperacoesService.java",
+          "line": 36,
+          "end_line": 51
+        }
+      ]
+    },
+    {
+      "id": "adapter",
+      "type": "backend",
+      "label": "Adapter",
+      "sublabel": "fonte primária",
+      "sources": [
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/FontePrimariaTrancodeAdapter.java",
+          "line": 186,
+          "end_line": 232
+        },
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/FontePrimariaTrancodeAdapter.java",
+          "line": 378,
+          "end_line": 404
+        }
+      ]
+    },
+    {
+      "id": "valkey",
+      "type": "database",
+      "label": "Valkey",
+      "sublabel": "cache de custódia",
+      "sources": [
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/cache/ValkeyCacheDeCustodia.java",
+          "line": 82,
+          "end_line": 101
+        }
+      ]
+    },
+    {
+      "id": "sf",
+      "type": "external",
+      "label": "SF",
+      "sublabel": "custódia",
+      "sources": [
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/GatewayMainframeClient.java",
+          "line": 18,
+          "end_line": 27
+        }
+      ]
+    },
+    {
+      "id": "f5",
+      "type": "external",
+      "label": "F5",
+      "sublabel": "custódia",
+      "sources": [
+        {
+          "path": "wiremock/mappings/100000007.json",
+          "line": 114,
+          "end_line": 186
+        }
+      ]
+    },
+    {
+      "id": "od",
+      "type": "external",
+      "label": "OD",
+      "sublabel": "custódia",
+      "sources": [
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/GatewayMainframeClient.java",
+          "line": 18,
+          "end_line": 27
+        }
+      ]
+    },
+    {
+      "id": "nsf",
+      "type": "external",
+      "label": "NSF",
+      "sublabel": "custódia",
+      "sources": [
+        {
+          "path": "src/main/java/br/com/consultas/operacoescredito/domain/PrecedenciaDeCustodia.java",
+          "line": 13,
+          "end_line": 34
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 310,
+      "label": "Entrada e cache de custódia"
+    },
+    {
+      "from": 320,
+      "to": 610,
+      "label": "Descoberta: fan-out do bloco operacao"
+    },
+    {
+      "from": 620,
+      "to": 920,
+      "label": "Demais blocos na F5, página a página"
+    },
+    {
+      "from": 930,
+      "to": 1025,
+      "label": "Resposta"
+    }
+  ],
+  "messages": [
+    {
+      "id": "requisicao",
+      "from": "consumidor",
+      "to": "api",
+      "y": 170,
+      "label": "GET ?id_operacao=100000007&expand=parcelas",
+      "variant": "emphasis",
+      "note": "prazo de 2,5 s"
+    },
+    {
+      "id": "buscar",
+      "from": "api",
+      "to": "adapter",
+      "y": 230,
+      "label": "buscar(OPERACAO, blocos)",
+      "variant": "emphasis"
+    },
+    {
+      "id": "mget",
+      "from": "adapter",
+      "to": "valkey",
+      "y": 260,
+      "label": "MGET custodia:100000007"
+    },
+    {
+      "id": "miss",
+      "from": "valkey",
+      "to": "adapter",
+      "y": 290,
+      "label": "ausente",
+      "variant": "return"
+    },
+    {
+      "id": "op-sf",
+      "from": "adapter",
+      "to": "sf",
+      "y": 335,
+      "label": "GET operacao"
+    },
+    {
+      "id": "op-f5",
+      "from": "adapter",
+      "to": "f5",
+      "y": 365,
+      "label": "GET operacao"
+    },
+    {
+      "id": "op-od",
+      "from": "adapter",
+      "to": "od",
+      "y": 395,
+      "label": "GET operacao"
+    },
+    {
+      "id": "op-nsf",
+      "from": "adapter",
+      "to": "nsf",
+      "y": 425,
+      "label": "GET operacao",
+      "note": "em paralelo; 1 da cota cada"
+    },
+    {
+      "id": "r-sf",
+      "from": "sf",
+      "to": "adapter",
+      "y": 485,
+      "label": "404",
+      "variant": "return"
+    },
+    {
+      "id": "r-f5",
+      "from": "f5",
+      "to": "adapter",
+      "y": 515,
+      "label": "trancode",
+      "variant": "return"
+    },
+    {
+      "id": "r-od",
+      "from": "od",
+      "to": "adapter",
+      "y": 545,
+      "label": "404",
+      "variant": "return"
+    },
+    {
+      "id": "r-nsf",
+      "from": "nsf",
+      "to": "adapter",
+      "y": 575,
+      "label": "404",
+      "variant": "return",
+      "note": "vence F5 (NSF > SF > F5 > OD)"
+    },
+    {
+      "id": "set",
+      "from": "adapter",
+      "to": "valkey",
+      "y": 635,
+      "label": "SET custodia:100000007 = F5",
+      "variant": "dashed"
+    },
+    {
+      "id": "orig",
+      "from": "adapter",
+      "to": "f5",
+      "y": 670,
+      "label": "GET originacao"
+    },
+    {
+      "id": "parc-1",
+      "from": "adapter",
+      "to": "f5",
+      "y": 700,
+      "label": "GET parcelas"
+    },
+    {
+      "id": "r-orig",
+      "from": "f5",
+      "to": "adapter",
+      "y": 730,
+      "label": "trancode",
+      "variant": "return"
+    },
+    {
+      "id": "r-parc-1",
+      "from": "f5",
+      "to": "adapter",
+      "y": 760,
+      "label": "página 1: 30, S + chave",
+      "variant": "return"
+    },
+    {
+      "id": "parc-2",
+      "from": "adapter",
+      "to": "f5",
+      "y": 795,
+      "label": "GET parcelas?chave_continuacao"
+    },
+    {
+      "id": "r-parc-2",
+      "from": "f5",
+      "to": "adapter",
+      "y": 825,
+      "label": "página 2: 30, S + chave",
+      "variant": "return"
+    },
+    {
+      "id": "parc-3",
+      "from": "adapter",
+      "to": "f5",
+      "y": 860,
+      "label": "GET parcelas?chave_continuacao"
+    },
+    {
+      "id": "r-parc-3",
+      "from": "f5",
+      "to": "adapter",
+      "y": 890,
+      "label": "página 3: 15, N",
+      "variant": "return",
+      "note": "parse pelo layout F5 × bloco"
+    },
+    {
+      "id": "operacao",
+      "from": "adapter",
+      "to": "api",
+      "y": 950,
+      "label": "operação com 75 parcelas",
+      "variant": "return",
+      "note": "filtro e seleção de campos"
+    },
+    {
+      "id": "resposta",
+      "from": "api",
+      "to": "consumidor",
+      "y": 1010,
+      "label": "200 {data: [...]}",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "api",
+      "from": 170,
+      "to": 1010,
+      "type": "backend"
+    },
+    {
+      "participant": "adapter",
+      "from": 230,
+      "to": 950,
+      "type": "backend"
+    },
+    {
+      "participant": "valkey",
+      "from": 260,
+      "to": 290,
+      "type": "database"
+    },
+    {
+      "participant": "sf",
+      "from": 335,
+      "to": 485,
+      "type": "external"
+    },
+    {
+      "participant": "f5",
+      "from": 365,
+      "to": 890,
+      "type": "external"
+    },
+    {
+      "participant": "od",
+      "from": 395,
+      "to": 545,
+      "type": "external"
+    },
+    {
+      "participant": "nsf",
+      "from": 425,
+      "to": 575,
+      "type": "external"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Descoberta de custódia",
+      "items": [
+        "Sem a custódia no cache, o bloco operacao é pedido nas 4 custódias ao mesmo tempo",
+        "Vale a de maior precedência entre as que têm a operação; os demais blocos vêm só dela",
+        "Custódia que não respondeu e nenhuma achada: 503, nunca 404"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Paginação",
+      "items": [
+        "Até 30 ocorrências por página; S indica mais páginas",
+        "Páginas em sequência, com a chave de continuação, até 20",
+        "Página que falha deixa o bloco indisponível, nunca truncado"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Cota",
+      "items": [
+        "Esta consulta gastou 8 chamadas: 4 na descoberta, 1 de originacao e 3 páginas de parcelas",
+        "Com a custódia no cache, seriam 5"
+      ]
+    }
+  ]
+}

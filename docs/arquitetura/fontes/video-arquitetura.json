@@ -1,0 +1,63 @@
+{
+  "version": 2,
+  "title": "Como funciona a fonte primária",
+  "intro": "Uma consulta lida direto do mainframe, sem a defasagem da visão consolidada.",
+  "outro": "A vazão deste serviço é a cota do mainframe: 1.500 chamadas/s, divididas entre as tasks.",
+  "scenes": [
+    {
+      "title": "A consulta chega",
+      "points": [
+        {
+          "anchor": "web",
+          "via": ["c-entrada", "c-alb", "c-rota"],
+          "title": "Validação e prazo",
+          "text": "API Gateway e ALB levam o GET /v1/operacoes-credito/fonte-primaria até a task. Parâmetro inválido dá 400 sem chamar o mainframe; o prazo da requisição começa a contar (2,5 s, depois 504).",
+          "caption": "O consumidor pede a operação sem defasagem."
+        }
+      ]
+    },
+    {
+      "title": "Achar a custódia",
+      "points": [
+        {
+          "anchor": "adapter",
+          "via": ["c-caso", "c-buscar", "c-cache"],
+          "title": "Cache ou descoberta",
+          "text": "O Valkey lembra em qual custódia a operação está. Sem essa lembrança, o bloco operacao é pedido nas 4 custódias em paralelo e vale a de maior precedência: NSF, SF, F5, OD.",
+          "caption": "Cache de custódia primeiro, fan-out se preciso."
+        }
+      ]
+    },
+    {
+      "title": "Ler o mainframe dentro da cota",
+      "points": [
+        {
+          "anchor": "resiliencia",
+          "via": "c-chamada",
+          "title": "Cota local",
+          "text": "O mainframe aceita 1.500 chamadas/s de toda a API. Cada task fica com 1.500 ÷ 3 = 500/s; o excedente recebe 429 com Retry-After, na hora.",
+          "caption": "Toda chamada passa pela cota local."
+        },
+        {
+          "anchor": "mainframe",
+          "via": "c-gateway",
+          "title": "Páginas de 30",
+          "text": "Blocos-lista vêm em páginas de até 30 ocorrências. Cada página, tentativa e custódia consultada gasta uma chamada da cota.",
+          "caption": "Os blocos vêm só da custódia vencedora."
+        }
+      ]
+    },
+    {
+      "title": "Responder",
+      "points": [
+        {
+          "anchor": "parser",
+          "via": "c-parse",
+          "title": "Trancode vira JSON",
+          "text": "O trancode de posições fixas é lido pelo layout da custódia e do bloco. Bloco que falhou volta null e é listado em x-blocos-indisponiveis.",
+          "caption": "Resposta parcial em vez de erro."
+        }
+      ]
+    }
+  ]
+}

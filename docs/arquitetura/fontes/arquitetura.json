@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Fonte primária: componentes de uma consulta",
+    "locale": "pt-BR",
+    "output": "docs/arquitetura/arquitetura.html",
+    "quality_profile": "showcase",
+    "legend": {
+      "entries": {
+        "backend": { "label": "Aplicação" },
+        "database": { "label": "Cache" },
+        "cloud": { "label": "Rede AWS" },
+        "security": { "label": "Borda e proteção" },
+        "messagebus": { "label": "Fila" },
+        "external": { "label": "Externo" }
+      }
+    },
+    "repository": {
+      "url": "https://github.com/joaopedro-techon/consultas-operacoes-credito-mainframe.git",
+      "provider": "github",
+      "revision": "31f46e27d0026a114312855139e062a0aaab09e8"
+    }
+  },
+  "layout": { "mode": "auto" },
+  "components": [
+    {
+      "id": "consumidor", "type": "external", "label": "Consumidor", "sublabel": "API key, sem defasagem",
+      "sources": [{ "path": "README.md", "line": 3, "end_line": 5 }]
+    },
+    {
+      "id": "apigw", "type": "security", "label": "API Gateway", "sublabel": "outro repositório",
+      "sources": [{ "path": "infra/ecs/README.md", "line": 3, "end_line": 3 }]
+    },
+    {
+      "id": "alb", "type": "cloud", "label": "ALB", "sublabel": "regra /fonte-primaria*",
+      "sources": [{ "path": "infra/ecs/main.tf", "line": 151, "end_line": 167 }, { "path": "infra/ecs/main.tf", "line": 8, "end_line": 26 }]
+    },
+    {
+      "id": "web", "type": "backend", "label": "Borda HTTP", "sublabel": "valida e inicia o prazo",
+      "explanation": "ContextoRequisicaoFilter valida x-correlationid e monta o evento de consumo ao fim; PrazoDaRequisicaoFilter inicia o prazo da requisição (OPERACAO 2,5 s; CLIENTE/CONTA 6 s); o controller valida os parâmetros (400) e devolve x-blocos-indisponiveis.",
+      "sources": [
+        { "path": "src/main/java/br/com/consultas/operacoescredito/adapters/in/web/OperacoesCreditoController.java", "line": 24, "end_line": 59 },
+        { "path": "src/main/java/br/com/consultas/operacoescredito/adapters/in/web/PrazoDaRequisicaoFilter.java", "line": 21, "end_line": 50 },
+        { "path": "src/main/java/br/com/consultas/operacoescredito/adapters/in/web/ContextoRequisicaoFilter.java", "line": 37, "end_line": 127 }
+      ]
+    },
+    {
+      "id": "caso", "type": "backend", "label": "Caso de uso", "sublabel": "filtro e seleção de campos",
+      "sources": [{ "path": "src/main/java/br/com/consultas/operacoescredito/application/service/ConsultarOperacoesService.java", "line": 21, "end_line": 52 }]
+    },
+    {
+      "id": "adapter", "type": "backend", "label": "Adapter da fonte primária", "sublabel": "descoberta, fan-out, páginas",
+      "explanation": "FontePrimariaTrancodeAdapter: com a custódia no cache, lê os blocos nela; sem ela, pede o bloco operacao nas 4 custódias em paralelo e fica com a de maior precedência (NSF > SF > F5 > OD). Blocos-lista vêm em páginas de até 30 ocorrências. Bloco que falha vira bloco indisponível; o bloco operacao que falha dá 503.",
+      "sources": [
+        { "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/FontePrimariaTrancodeAdapter.java", "line": 165, "end_line": 232 },
+        { "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/FontePrimariaTrancodeAdapter.java", "line": 378, "end_line": 404 }
+      ]
+    },
+    {
+      "id": "resiliencia", "type": "security", "label": "Resiliência e cota", "sublabel": "500/s por task → 429",
+      "explanation": "ResilienciaFontePrimaria: retry → circuit breaker (por custódia × bloco) → rate limiter → bulkheads. O rate limiter é a cota da fonte primária dividida pelas tasks: 1.500 ÷ 3 = 500 chamadas/s por task; sem permissão, 429 com Retry-After na hora (ADR-0015).",
+      "sources": [
+        { "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/ResilienciaFontePrimaria.java", "line": 112, "end_line": 133 },
+        { "path": "src/main/resources/application.yml", "line": 116, "end_line": 119 }
+      ]
+    },
+    {
+      "id": "parser", "type": "backend", "label": "Parser de trancode", "sublabel": "layout custódia × bloco",
+      "sources": [
+        { "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/ParserTrancode.java", "line": 15, "end_line": 35 },
+        { "path": "src/main/resources/trancode/layouts/operacao.yml" }
+      ]
+    },
+    {
+      "id": "mainframe", "type": "external", "label": "Gateway do mainframe", "sublabel": "DB2 · SF, F5, OD, NSF",
+      "sources": [{ "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/fonteprimaria/GatewayMainframeClient.java", "line": 18, "end_line": 36 }]
+    },
+    {
+      "id": "valkey", "type": "database", "label": "Valkey", "sublabel": "cache de custódia",
+      "sources": [{ "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/cache/ValkeyCacheDeCustodia.java", "line": 31, "end_line": 49 }]
+    },
+    {
+      "id": "sqs", "type": "messagebus", "label": "SQS", "sublabel": "evento de consumo",
+      "sources": [{ "path": "src/main/java/br/com/consultas/operacoescredito/adapters/out/eventos/SqsPublicadorDeEventosDeConsumo.java", "line": 298, "end_line": 311 }]
+    },
+    {
+      "id": "consolidada", "type": "external", "label": "Visão consolidada", "sublabel": "outro repositório",
+      "sources": [{ "path": "docs/adr/0017-dois-repositorios-visao-consolidada-e-mainframe.md", "line": 21, "end_line": 22 }]
+    }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "Serviço ECS fonte-primaria", "wraps": ["web", "caso", "adapter", "resiliencia", "parser"] }
+  ],
+  "connections": [
+    { "id": "c-entrada", "from": "consumidor", "to": "apigw", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "c-alb", "from": "apigw", "to": "alb", "variant": "emphasis" },
+    { "id": "c-rota", "from": "alb", "to": "web", "label": "/fonte-primaria", "variant": "emphasis" },
+    { "id": "c-outra-rota", "from": "alb", "to": "consolidada", "label": "outra rota", "variant": "dashed" },
+    { "id": "c-caso", "from": "web", "to": "caso", "label": "Consulta", "variant": "emphasis" },
+    { "id": "c-buscar", "from": "caso", "to": "adapter", "label": "buscar", "variant": "emphasis" },
+    { "id": "c-cache", "from": "adapter", "to": "valkey", "label": "MGET · SET" },
+    { "id": "c-chamada", "from": "adapter", "to": "resiliencia", "label": "cada chamada", "variant": "emphasis" },
+    { "id": "c-gateway", "from": "resiliencia", "to": "mainframe", "label": "GET trancode", "variant": "emphasis" },
+    { "id": "c-parse", "from": "adapter", "to": "parser", "label": "trancode" },
+    { "id": "c-evento", "from": "web", "to": "sqs", "label": "evento", "variant": "dashed" },
+    { "id": "c-compartilhado", "from": "consolidada", "to": "valkey", "label": "mesma chave", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "Cota da fonte primária", "items": ["1.500 chamadas/s para toda a API", "Cada task: 1.500 ÷ 3 = 500/s; excedente → 429 + Retry-After", "Toda página, tentativa e custódia consultada gasta uma chamada"] },
+    { "dot": "cyan", "title": "Descoberta de custódia", "items": ["Sem cache: bloco operacao nas 4 custódias em paralelo", "Precedência NSF > SF > F5 > OD", "O cache de custódia poupa até 3 chamadas por consulta"] },
+    { "dot": "slate", "title": "Fora deste repositório", "items": ["API Gateway e visão consolidada: consultas-operacoes-credito", "Valkey e fila SQS são compartilhados com a visão consolidada"] }
+  ]
+}
