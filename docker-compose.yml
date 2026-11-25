@@ -1,23 +1,23 @@
 name: consultas-operacoes-credito-mainframe
 
 services:
-  localstack:
-    # Última tag Community que sobe sem auth token (ADR-0003). Uso exclusivo em desenvolvimento local.
-    image: localstack/localstack:4.14.0
-    ports:
-      - "4566:4566"
-    # Só o SQS: a fila do evento de consumo (ADR-0004)
-    environment:
-      SERVICES: sqs
-      AWS_DEFAULT_REGION: sa-east-1
-      CONSULTAS_EVENTOS_FILA: consultas-eventos-consumo
-    volumes:
-      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
+#  localstack:
+#    # Última tag Community que sobe sem auth token (ADR-0003). Uso exclusivo em desenvolvimento local.
+#    image: localstack/localstack:4.14.0
+#    ports:
+#      - "4566:4566"
+#    # Só o SQS: a fila do evento de consumo (ADR-0004)
+#    environment:
+#      SERVICES: sqs
+#      AWS_DEFAULT_REGION: sa-east-1
+#      CONSULTAS_EVENTOS_FILA: consultas-eventos-consumo
+#    volumes:
+#      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 30
 
   wiremock:
     # Gateway do mainframe (fonte primária): stubs de trancode versionados em wiremock/mappings
@@ -33,116 +33,116 @@ services:
       timeout: 3s
       retries: 30
 
-  valkey:
-    # Cache de custódia (custodia:{id_operacao}, ADR-0012); sem persistência: é só cache
-    image: valkey/valkey:9.0.8-alpine
-    command: ["valkey-server", "--save", "", "--appendonly", "no"]
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-
-  redisinsight:
-    # UI para inspecionar o cache (só desenvolvimento local): http://localhost:5540. A conexão com o Valkey vem
-    # pré-configurada (aparece depois de aceitar os termos no primeiro acesso); os valores são o código da custódia.
-    image: redis/redisinsight:3.8.0
-    ports:
-      - "5540:5540"
-    environment:
-      RI_REDIS_HOST: valkey
-      RI_REDIS_PORT: "6379"
-      RI_REDIS_ALIAS: valkey (cache local)
-    depends_on:
-      valkey:
-        condition: service_healthy
-
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      AWS_REGION: sa-east-1
-      CONSULTAS_FONTE_PRIMARIA_URL: http://wiremock:8080
-      CONSULTAS_VALKEY_HOST: valkey
-      CONSULTAS_VALKEY_PORTA: "6379"
-      # Evento de consumo (ADR-0004): fila criada por localstack/init/ready.d/00-eventos-consumo.sh.
-      # Segredo do HMAC só para desenvolvimento local; nos ambientes reais vem de um cofre de segredos.
-      CONSULTAS_EVENTOS_SQS_ENDPOINT: http://localstack:4566
-      CONSULTAS_EVENTOS_SQS_URL_FILA: http://localstack:4566/000000000000/consultas-eventos-consumo
-      CONSULTAS_EVENTOS_SQS_CREDENCIAIS_ACCESS_KEY_ID: test
-      CONSULTAS_EVENTOS_SQS_CREDENCIAIS_SECRET_ACCESS_KEY: test
-      CONSULTAS_EVENTOS_SEGREDO_HMAC: segredo-local-somente-desenvolvimento
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8080 && printf \"GET /actuator/health/readiness HTTP/1.0\r\n\r\n\" >&3 && grep -q UP <&3'"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
-    depends_on:
-      localstack:
-        condition: service_healthy
-      wiremock:
-        condition: service_healthy
-      valkey:
-        condition: service_healthy
-      otel-collector:
-        condition: service_started
-
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.165.0
-    command: ["--config=/etc/otelcol-contrib/config.yaml"]
-    volumes:
-      - ./observabilidade/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
-    ports:
-      - "4317:4317"
-      - "4318:4318"
-    depends_on:
-      jaeger:
-        condition: service_started
-
-  jaeger:
-    # Jaeger v2 (all-in-one, armazenamento em memória), recebe OTLP do Collector
-    image: jaegertracing/jaeger:2.23.0
-    ports:
-      - "16686:16686"
-
-  prometheus:
-    image: prom/prometheus:v3.16.0
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.retention.time=2d
-    volumes:
-      - ./observabilidade/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-
-  grafana:
-    image: grafana/grafana:13.3.1
-    environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/consultas-operacoes-credito.json
-    volumes:
-      - ./observabilidade/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observabilidade/grafana/dashboards:/var/lib/grafana/dashboards:ro
-    ports:
-      - "3000:3000"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-    depends_on:
-      prometheus:
-        condition: service_healthy
-      jaeger:
-        condition: service_started
+#  valkey:
+#    # Cache de custódia (custodia:{id_operacao}, ADR-0012); sem persistência: é só cache
+#    image: valkey/valkey:9.0.8-alpine
+#    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+#    ports:
+#      - "6379:6379"
+#    healthcheck:
+#      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 30
+#
+#  redisinsight:
+#    # UI para inspecionar o cache (só desenvolvimento local): http://localhost:5540. A conexão com o Valkey vem
+#    # pré-configurada (aparece depois de aceitar os termos no primeiro acesso); os valores são o código da custódia.
+#    image: redis/redisinsight:3.8.0
+#    ports:
+#      - "5540:5540"
+#    environment:
+#      RI_REDIS_HOST: valkey
+#      RI_REDIS_PORT: "6379"
+#      RI_REDIS_ALIAS: valkey (cache local)
+#    depends_on:
+#      valkey:
+#        condition: service_healthy
+#
+#  app:
+#    build: .
+#    ports:
+#      - "8080:8080"
+#    environment:
+#      AWS_REGION: sa-east-1
+#      CONSULTAS_FONTE_PRIMARIA_URL: http://wiremock:8080
+#      CONSULTAS_VALKEY_HOST: valkey
+#      CONSULTAS_VALKEY_PORTA: "6379"
+#      # Evento de consumo (ADR-0004): fila criada por localstack/init/ready.d/00-eventos-consumo.sh.
+#      # Segredo do HMAC só para desenvolvimento local; nos ambientes reais vem de um cofre de segredos.
+#      CONSULTAS_EVENTOS_SQS_ENDPOINT: http://localstack:4566
+#      CONSULTAS_EVENTOS_SQS_URL_FILA: http://localstack:4566/000000000000/consultas-eventos-consumo
+#      CONSULTAS_EVENTOS_SQS_CREDENCIAIS_ACCESS_KEY_ID: test
+#      CONSULTAS_EVENTOS_SQS_CREDENCIAIS_SECRET_ACCESS_KEY: test
+#      CONSULTAS_EVENTOS_SEGREDO_HMAC: segredo-local-somente-desenvolvimento
+#      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+#    healthcheck:
+#      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8080 && printf \"GET /actuator/health/readiness HTTP/1.0\r\n\r\n\" >&3 && grep -q UP <&3'"]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 30
+#      start_period: 10s
+#    depends_on:
+#      localstack:
+#        condition: service_healthy
+#      wiremock:
+#        condition: service_healthy
+#      valkey:
+#        condition: service_healthy
+#      otel-collector:
+#        condition: service_started
+#
+#  otel-collector:
+#    image: otel/opentelemetry-collector-contrib:0.165.0
+#    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+#    volumes:
+#      - ./observabilidade/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+#    ports:
+#      - "4317:4317"
+#      - "4318:4318"
+#    depends_on:
+#      jaeger:
+#        condition: service_started
+#
+#  jaeger:
+#    # Jaeger v2 (all-in-one, armazenamento em memória), recebe OTLP do Collector
+#    image: jaegertracing/jaeger:2.23.0
+#    ports:
+#      - "16686:16686"
+#
+#  prometheus:
+#    image: prom/prometheus:v3.16.0
+#    command:
+#      - --config.file=/etc/prometheus/prometheus.yml
+#      - --storage.tsdb.retention.time=2d
+#    volumes:
+#      - ./observabilidade/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+#    ports:
+#      - "9090:9090"
+#    healthcheck:
+#      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 30
+#
+#  grafana:
+#    image: grafana/grafana:13.3.1
+#    environment:
+#      GF_AUTH_ANONYMOUS_ENABLED: "true"
+#      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+#      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/consultas-operacoes-credito.json
+#    volumes:
+#      - ./observabilidade/grafana/provisioning:/etc/grafana/provisioning:ro
+#      - ./observabilidade/grafana/dashboards:/var/lib/grafana/dashboards:ro
+#    ports:
+#      - "3000:3000"
+#    healthcheck:
+#      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 30
+#    depends_on:
+#      prometheus:
+#        condition: service_healthy
+#      jaeger:
+#        condition: service_started
