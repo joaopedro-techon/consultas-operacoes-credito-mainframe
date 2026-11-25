@@ -1,0 +1,114 @@
+<mxfile host="drawio" agent="drawio skill">
+  <diagram id="visao-geral" name="Visão geral">
+    <mxGraphModel adaptiveColors="auto" dx="1460" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1460" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="titulo" value="&lt;b&gt;consultas-operacoes-credito-mainframe&lt;/b&gt; · rota da fonte primária (somente leitura)" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="20" y="0" width="900" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws" value="AWS" style="sketch=0;outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_aws_cloud_alt;strokeColor=#879196;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="160" y="45" width="930" height="665" as="geometry"/>
+        </mxCell>
+        <mxCell id="ecs" value="Serviço ECS Fargate &lt;b&gt;fonte-primaria&lt;/b&gt; (infra/ecs)&lt;br&gt;2 a 3 tasks · deploy com maximumPercent=100" style="rounded=1;arcSize=3;html=1;whiteSpace=wrap;fontSize=12;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fillColor=none;strokeColor=#ED7100;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="530" y="85" width="490" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="fonte" value="Fonte primária" style="rounded=1;arcSize=4;html=1;whiteSpace=wrap;fontSize=12;fontStyle=1;verticalAlign=top;align=left;spacingLeft=10;spacingTop=4;fillColor=none;strokeColor=#01A88D;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="85" width="300" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="consumidor" value="Consumidor&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;sistema com API key&lt;/font&gt;" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#232F3D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.users;" vertex="1" parent="1">
+          <mxGeometry x="50" y="175" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="apigw" value="API Gateway&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;Usage Plan · API key&lt;br&gt;(repo consultas-operacoes-credito)&lt;/font&gt;" style="sketch=0;outlineConnect=0;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" vertex="1" parent="1">
+          <mxGeometry x="230" y="175" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" value="/v1/operacoes-credito*" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;dashed=1;opacity=45;textOpacity=60;labelBackgroundColor=default;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="alb" target="vc">
+          <mxGeometry x="0.4" relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="alb" value="ALB&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;regra por caminho&lt;br&gt;/v1/operacoes-credito/&lt;br&gt;fonte-primaria*&lt;/font&gt;" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#8C4FFF;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;labelBackgroundColor=default;shape=mxgraph.aws4.application_load_balancer;" vertex="1" parent="1">
+          <mxGeometry x="400" y="175" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="task" value="Task&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;Spring Boot 4&lt;br&gt;Java 25&lt;/font&gt;" style="sketch=0;outlineConnect=0;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.fargate;" vertex="1" parent="1">
+          <mxGeometry x="560" y="175" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="app" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;b&gt;GET /v1/operacoes-credito/fonte-primaria&lt;/b&gt;&lt;br&gt;&lt;br&gt;1. Valida parâmetros e inicia o prazo da requisição&lt;br&gt;2. Cache de custódia ou descoberta de custódia&lt;br&gt;&amp;nbsp; &amp;nbsp; (fan-out do bloco operacao nas 4 custódias)&lt;br&gt;3. Lê os blocos na custódia vencedora, por páginas&lt;br&gt;4. Converte o trancode pelo layout custódia × bloco&lt;br&gt;5. Filtro e seleção de campos, blocos indisponíveis&lt;br&gt;&lt;br&gt;&lt;b&gt;Cota local:&lt;/b&gt; 1.500 ÷ 3 tasks = 500 chamadas/s&lt;br&gt;excedente → 429 + Retry-After&lt;/div&gt;" style="rounded=1;arcSize=4;html=1;whiteSpace=wrap;fontSize=11;align=left;verticalAlign=middle;spacing=10;fillColor=#FDF1E4;strokeColor=#ED7100;" vertex="1" parent="1">
+          <mxGeometry x="660" y="135" width="340" height="205" as="geometry"/>
+        </mxCell>
+        <mxCell id="gwmf" value="Gateway do&lt;br&gt;mainframe&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;HTTP · trancode&lt;/font&gt;" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#232F3D;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.traditional_server;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="168" width="45" height="78" as="geometry"/>
+        </mxCell>
+        <mxCell id="mf" value="&lt;b&gt;Mainframe DB2&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;4 custódias&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fontSize=12;verticalAlign=top;spacingTop=6;fillColor=#E6F6F3;strokeColor=#01A88D;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="120" width="130" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-nsf" value="NSF" style="rounded=1;html=1;fontSize=11;fontStyle=1;fillColor=#FFFFFF;strokeColor=#01A88D;" vertex="1" parent="1">
+          <mxGeometry x="1325" y="180" width="80" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-sf" value="SF" style="rounded=1;html=1;fontSize=11;fontStyle=1;fillColor=#FFFFFF;strokeColor=#01A88D;" vertex="1" parent="1">
+          <mxGeometry x="1325" y="214" width="80" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-f5" value="F5" style="rounded=1;html=1;fontSize=11;fontStyle=1;fillColor=#FFFFFF;strokeColor=#01A88D;" vertex="1" parent="1">
+          <mxGeometry x="1325" y="248" width="80" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="c-od" value="OD" style="rounded=1;html=1;fontSize=11;fontStyle=1;fillColor=#FFFFFF;strokeColor=#01A88D;" vertex="1" parent="1">
+          <mxGeometry x="1325" y="282" width="80" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="prec" value="precedência de custódia&lt;br&gt;NSF &amp;gt; SF &amp;gt; F5 &amp;gt; OD" style="text;html=1;align=center;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1295" y="316" width="140" height="34" as="geometry"/>
+        </mxCell>
+        <mxCell id="valkey" value="ElastiCache (Valkey)&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;cache de custódia&lt;br&gt;custodia:{id_operacao}&lt;br&gt;TTL 24 h&lt;/font&gt;" style="sketch=0;outlineConnect=0;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.elasticache;" vertex="1" parent="1">
+          <mxGeometry x="660" y="500" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="sqs" value="SQS&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;consultas-eventos-consumo&lt;br&gt;evento de consumo&lt;br&gt;rota=fonte_primaria&lt;/font&gt;" style="sketch=0;outlineConnect=0;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sqs;" vertex="1" parent="1">
+          <mxGeometry x="770" y="500" width="60" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="otel" value="&lt;b&gt;OTel Collector&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;métricas e traces&lt;/font&gt;" style="rounded=1;html=1;whiteSpace=wrap;fontSize=12;fillColor=#F2F2F2;strokeColor=#879196;" vertex="1" parent="1">
+          <mxGeometry x="860" y="505" width="100" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="logs" value="CloudWatch Logs&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;/ecs/&amp;lt;nome&amp;gt;/fonte-primaria&lt;/font&gt;" style="sketch=0;outlineConnect=0;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.cloudwatch_logs;" vertex="1" parent="1">
+          <mxGeometry x="960" y="610" width="60" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="vc" value="&lt;b&gt;Visão consolidada&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;outro serviço ECS,&lt;br&gt;outro repositório&lt;/font&gt;" style="rounded=1;html=1;whiteSpace=wrap;fontSize=12;dashed=1;opacity=45;textOpacity=55;fillColor=#F2F2F2;strokeColor=#879196;" vertex="1" parent="1">
+          <mxGeometry x="350" y="500" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=default;" edge="1" parent="1" source="consumidor" target="apigw">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="apigw" target="alb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;strokeWidth=2;" edge="1" parent="1" source="alb" target="task">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;dashed=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.346;entryDx=0;entryDy=0;" edge="1" parent="1" source="task" target="app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" value="até 1.500&lt;br&gt;chamadas/s&lt;br&gt;no total (cota)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;strokeWidth=2;labelBackgroundColor=default;exitX=1;exitY=0.346;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="app" target="gwmf">
+          <mxGeometry x="-0.3" relative="1" as="geometry">
+            <mxPoint as="offset" x="0" y="-26"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.362;entryDx=0;entryDy=0;" edge="1" parent="1" source="gwmf" target="mf">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" value="MGET · SET · DEL&lt;br&gt;fail-open" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;labelBackgroundColor=default;exitX=0.088;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="app" target="valkey">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" value="SendMessageBatch&lt;br&gt;best-effort" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;dashed=1;labelBackgroundColor=default;exitX=0.412;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="app" target="sqs">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" value="OTLP/HTTP" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;dashed=1;labelBackgroundColor=default;exitX=0.735;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="app" target="otel">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" value="logs JSON" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;dashed=1;labelBackgroundColor=default;exitX=0.97;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="app" target="logs">
+          <mxGeometry x="0.45" relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" value="mesma&lt;br&gt;chave" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;endArrow=block;endFill=1;dashed=1;opacity=45;textOpacity=60;labelBackgroundColor=default;" edge="1" parent="1" source="vc" target="valkey">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="nota" value="&lt;div style=&quot;text-align: left;&quot;&gt;&lt;b&gt;Por que a cota manda&lt;/b&gt;&lt;br&gt;O mainframe aceita 1.500 chamadas/s de toda a API. Cada task limita-se a cota ÷ max_tasks, sem coordenação entre tasks (ADR-0015).&lt;br&gt;&lt;br&gt;Cada página, tentativa e custódia consultada gasta uma chamada; o cache de custódia poupa até 3 por consulta OPERACAO (ADR-0012).&lt;br&gt;&lt;br&gt;Sem cache de dados: todo bloco vem do mainframe na hora (ADR-0002).&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;fontSize=11;align=left;verticalAlign=top;spacing=8;rounded=1;strokeColor=#879196;dashed=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="420" width="300" height="190" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
