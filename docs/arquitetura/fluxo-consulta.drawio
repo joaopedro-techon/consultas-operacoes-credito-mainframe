@@ -1,0 +1,186 @@
+<mxfile host="drawio" agent="drawio skill">
+  <diagram id="fluxo-consulta" name="Fluxo de uma consulta OPERACAO">
+    <mxGraphModel adaptiveColors="auto" dx="1300" dy="1400" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1300" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="titulo" value="&lt;b&gt;Fluxo de uma consulta OPERACAO&lt;/b&gt; · GET /v1/operacoes-credito/fonte-primaria" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="40" y="0" width="800" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="inicio" value="Requisição chega&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;x-tipo-consulta: OPERACAO · id_operacao · expand · fields · filter&lt;/font&gt;" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E6F4EA;strokeColor=#2E7D32;" vertex="1" parent="1">
+          <mxGeometry x="330" y="45" width="360" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="prazo" value="Inicia o &lt;b&gt;prazo da requisição&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;OPERACAO 2,5 s · CLIENTE/CONTA 6 s&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="380" y="125" width="260" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="valida" value="Headers, parâmetros,&lt;br&gt;fields e filter válidos?" style="rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF8E1;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="400" y="205" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="e400" value="&lt;b&gt;400&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;Problem Details, sem chamar o gateway&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#FDECEA;strokeColor=#C62828;" vertex="1" parent="1">
+          <mxGeometry x="720" y="225" width="210" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="cache" value="Custódia no&lt;br&gt;&lt;b&gt;cache de custódia&lt;/b&gt;?&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;MGET no Valkey, fail-open&lt;/font&gt;" style="rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF8E1;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="395" y="330" width="230" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="lembrada" value="Lê os blocos pedidos&lt;br&gt;na custódia lembrada" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="230" y="470" width="240" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="opLembrada" value="Bloco operacao?" style="rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF8E1;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="270" y="560" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e503a" value="&lt;b&gt;503&lt;/b&gt; + Retry-After&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;custodias_indisponiveis&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#FDECEA;strokeColor=#C62828;" vertex="1" parent="1">
+          <mxGeometry x="40" y="575" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="descoberta" value="&lt;b&gt;Descoberta de custódia&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;bloco operacao nas 4 custódias em paralelo&lt;br&gt;(SF, F5, OD, NSF)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="560" y="465" width="250" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="achada" value="Achada em&lt;br&gt;alguma custódia?" style="rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF8E1;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="595" y="560" width="180" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="indisp" value="Alguma custódia&lt;br&gt;indisponível?" style="rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF8E1;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="850" y="560" width="170" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e503b" value="&lt;b&gt;503&lt;/b&gt; + Retry-After&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;custodias_indisponiveis (nunca 404 falso)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#FDECEA;strokeColor=#C62828;" vertex="1" parent="1">
+          <mxGeometry x="840" y="680" width="190" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="e404" value="&lt;b&gt;404&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;operação inexistente&lt;br&gt;em todas as custódias&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#FDECEA;strokeColor=#C62828;" vertex="1" parent="1">
+          <mxGeometry x="1070" y="575" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="precedencia" value="&lt;b&gt;Precedência de custódia&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;NSF &amp;gt; SF &amp;gt; F5 &amp;gt; OD · grava a vencedora no cache&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="560" y="680" width="250" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="demais" value="Lê os demais blocos só na&lt;br&gt;custódia vencedora" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="560" y="760" width="250" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="monta" value="&lt;b&gt;Monta a operação&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;bloco que falhou volta null: bloco indisponível (ADR-0013)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="330" y="850" width="360" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="filtro" value="&lt;b&gt;Filtro e seleção de campos&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;em memória, sobre o que a fonte devolveu&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="380" y="930" width="260" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="fim" value="&lt;b&gt;200&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;header x-blocos-indisponiveis quando algum bloco falhou&lt;/font&gt;" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E6F4EA;strokeColor=#2E7D32;" vertex="1" parent="1">
+          <mxGeometry x="330" y="1010" width="360" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="evento" value="Ao fim de toda requisição, com sucesso ou erro: evento de consumo no SQS (rota=fonte_primaria), best-effort" style="text;html=1;whiteSpace=wrap;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1010" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="painel" value="&lt;b&gt;Cada chamada ao gateway&lt;/b&gt; (descoberta, cada bloco e cada página), até 16 em paralelo por requisição" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fontSize=12;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fillColor=none;strokeColor=#879196;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1100" width="1200" height="270" as="geometry"/>
+        </mxCell>
+        <mxCell id="p1" value="Vaga e prazo&lt;br&gt;restantes?" style="rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF8E1;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1150" width="170" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e504" value="&lt;b&gt;504&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;prazo da requisição esgotado&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#FDECEA;strokeColor=#C62828;" vertex="1" parent="1">
+          <mxGeometry x="75" y="1290" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2" value="Permissão na&lt;br&gt;&lt;b&gt;cota local&lt;/b&gt;?&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;500 chamadas/s por task&lt;/font&gt;" style="rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF8E1;strokeColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="290" y="1148" width="190" height="94" as="geometry"/>
+        </mxCell>
+        <mxCell id="e429" value="&lt;b&gt;429&lt;/b&gt; + Retry-After&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;sem fila, na hora&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#FDECEA;strokeColor=#C62828;" vertex="1" parent="1">
+          <mxGeometry x="305" y="1290" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="p3" value="Retry · circuit breaker&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;por custódia × bloco&lt;br&gt;bulkhead por custódia&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="530" y="1160" width="190" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="falha" value="falha (circuito aberto, 5xx, timeout, bulkhead cheio, trancode fora do layout): o bloco fica indisponível; no bloco operacao, 503" style="text;html=1;whiteSpace=wrap;fontSize=10;align=left;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="530" y="1285" width="430" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="p4" value="&lt;b&gt;Gateway do mainframe&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;GET …/operacoes/{id}/blocos/{bloco}&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E6F6F3;strokeColor=#01A88D;" vertex="1" parent="1">
+          <mxGeometry x="760" y="1160" width="220" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="p5" value="&lt;b&gt;Parse do trancode&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;layout custódia × bloco&lt;br&gt;até 30 ocorrências por página&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#E8F0FE;strokeColor=#4A7BD0;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="1160" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="f1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="inicio" target="prazo">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="prazo" target="valida">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f3" value="não" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="valida" target="e400">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f4" value="sim" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="valida" target="cache">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f5" value="sim" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="cache" target="lembrada">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f6" value="não" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="cache" target="descoberta">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="lembrada" target="opLembrada">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f8" value="falhou" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="opLembrada" target="e503a">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f9" value="404: DEL da chave&lt;br&gt;e nova descoberta" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="opLembrada" target="descoberta">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="510" y="600"/>
+              <mxPoint x="510" y="495"/>
+            </Array>
+            <mxPoint as="offset" x="0" y="35"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="f10" value="lido" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.055;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="opLembrada" target="monta">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="descoberta" target="achada">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f12" value="não" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="achada" target="indisp">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f13" value="sim" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="indisp" target="e503b">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f14" value="não" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="indisp" target="e404">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f15" value="sim" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="achada" target="precedencia">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="precedencia" target="demais">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.92;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="demais" target="monta">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="monta" target="filtro">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="f19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="filtro" target="fim">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="g1" value="não" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="p1" target="e504">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="g2" value="sim" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="p1" target="p2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="g3" value="não" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="p2" target="e429">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="g4" value="sim" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="p2" target="p3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="g5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="p3" target="p4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="g6" value="trancode" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=default;" edge="1" parent="1" source="p4" target="p5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="g7" value="indicador S: pede a próxima página com a chave de continuação (até 20 páginas)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;dashed=1;labelBackgroundColor=default;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5" target="p1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="1138"/>
+              <mxPoint x="155" y="1138"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

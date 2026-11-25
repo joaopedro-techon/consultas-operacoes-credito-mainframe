@@ -7,3 +7,10 @@ hs_err_pid*.log
 .claude/worktrees/
 
 __pycache__/
+
+# Arquivos intermediários da archify (docs/arquitetura)
+.archify/
+docs/arquitetura/*.finalize.json
+docs/arquitetura/*.finalize-summary.json
+docs/arquitetura/*.browser-check.json
+docs/arquitetura/*.delivery.json

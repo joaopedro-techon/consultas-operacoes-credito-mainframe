@@ -18,6 +18,13 @@ Descrição completa em `docs/prompt_detalhes_2.md`; vocabulário em `GLOSSARY.m
 | 1.1.0 | `expand` com os 9 blocos (inclui `controles_iof`), `x-blocos-indisponiveis`, catálogo de campos, massa nova |
 | 1.0.0 | Esqueleto do projeto e consulta `OPERACAO` com os blocos `operacao` e `originacao` |
 
+## Documentação visual
+
+![Visão geral da fonte primária](docs/arquitetura/visao-geral.svg)
+
+Fluxo de uma consulta, componentes no código, diagrama de sequência e vídeo em
+[`docs/arquitetura/`](docs/arquitetura/).
+
 ## Stack
 
 Java 25, Spring Boot 4.2 (Spring MVC com virtual threads), AWS SDK v2 síncrono (só SQS), Maven (com wrapper).
